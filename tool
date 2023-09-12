@@ -7,19 +7,23 @@ Manages meta tools
 
 ---
 
-    ./tool remote -u x3@95.217.11.68 bs
+When account already exists:
+
+    ./tool x3@95.217.11.68 -u bs
 
 - Copies this version of tool over (-u) to ~/.local/bin
-- Installs for existing(!) x3 user on 95... the core tools binenev asdf micromamba
+- Installs (bs alias for bootstrap) for x3 user on 95... the core tools: binenev asdf micromamba
 
 ---
 
-    pw=foo ./tool remote -Suc x3@95.217.11.68 bs -nb
+When no user yet existing but we have root login:
+
+    pw=foo ./tool x3@95.217.11.68 -Suc bs -nb
 
 - Requires `ssh root@95...` login! Because:
-- Creates (-c) remotely user x3 with password foo
+- Creates (-c) user x3 with password foo ($pw set when running)
 - Copies this version of tool over (-u)
-- Ensures passwordless sudo during install (needed for nix (-n) and brew (-b))
+- Ensures passwordless sudo during install (-S) (needed for nix (-n) and brew (-b))
 - Bootstraps (bs): binenv asdf micromamba nix brew
 
 '
@@ -32,13 +36,16 @@ H="$HOME"
 MM_D_BASE="$H/micromamba"
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
 ARCH="amd64"
-TOOLSHELL=bash
 case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
 BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
 ASDF_REPO="https://github.com/asdf-vm/asdf.git"
 BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 NIX_URL="https://nixos.org/nix/install"
 NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
+FN_ACT_TOOLS="$H/.activate_tools"
+
+# internal
+remote_host=
 
 # ------------------------------------------------------------------------- UTILS
 function title { echo -e "\x1b[1;${2:-32}m$1\x1b[0m"; }
@@ -60,10 +67,9 @@ function download {
     test -z "${3:-}" && return 0
     "$3" "$2"
 }
-function source_shell_hooks { set +u && try . "$H/.${TOOLSHELL}rc" && set -u; }
+function source_shell_hooks { test -e "$FN_ACT_TOOLS" && . "$FN_ACT_TOOLS" || true; }
 function set_sh_sep {
-    local sep
-    test "$1" = "micromamba" && sep=mamba || sep="$1"
+    local sep && sep="$1"
     SH_SEP1="# >>> $sep initialize >>>" # mamba style, only one which does it
     SH_SEP2="# <<< $sep initialize <<<"
 }
@@ -78,7 +84,8 @@ function get_root {
     die "Require pw less sudo for non-interactive remote installation"
 }
 function bootstrap_add_shell_hook {
-    local fnt act name="$1" what="$2" fn="$H/.${TOOLSHELL}rc"
+    local fnt act name="$1" what="$2" fn="$FN_ACT_TOOLS"
+    touch "$fn"
     nfo "Modifying $fn for $name"
     set_sh_sep "$name"
     act="$SH_SEP1\n$what\n$SH_SEP2\n"
@@ -100,7 +107,7 @@ function tool.status {
 }
 
 function tool.bootstrap {
-    local mgrs="$ALW_TOOLMGRS"
+    local act mgrs="$ALW_TOOLMGRS"
     while getopts onb opt; do
         case "$opt" in
             o) mgrs="" ;; # must be before n and b
@@ -122,9 +129,14 @@ function tool.bootstrap {
     I.e. the bootstrapping process does add the shell hook to `.<bash | zsh >rc`.
     User can change that and eval in other places but those should be evaled FROM shellrc as well.
     📓
-    source_shell_hooks
+    act="source $FN_ACT_TOOLS"
+    grep -q "^$act" <"$HOME/.bashrc" || {
+        local fn && fn="$(tmpfn brc)" # maybe no sed
+        echo -e "$act\n\n" >"$fn"
+        cat "$H/.bashrc" >>"$fn"
+        mv "$fn" "$H/.bashrc"
+    }
     local inst=false
-    #mgrs=nix # !!!!!!
     for t in $mgrs; do
         "$t.bootstrapped" && nfo "Have $t" || { inst=true && shtit "$t.bootstrap"; }
     done
@@ -142,18 +154,18 @@ function remote_create_user {
         echo -e '
         user="'$user'"; pw="'$pw'"
         set -e
-        adduser "$user"
+        useradd -md "/home/$user" -s /bin/bash "$user" || echo "User exists already"
         mkdir -p "/home/$user/.ssh"
         cp .ssh/authorized_keys "/home/$user/.ssh/"
         chown -R "$user:$user" "/home/$user/.ssh"
         su - "$user" -c "mkdir -p .local/bin"
-        if [ "$pw" = "NOPASSWD" ]; then
-            echo -e "$pw\n$pw\n" | passwd "$user"
-        fi
+        test -z "$pw" && exit
+        echo "Setting password"
+        echo -e "$pw\n$pw\n" | passwd "$user"
         '
     }
     addu "$user" | ssh "root@$host" || die "Have no root access to $host"
-    scp -q "$0" "$user@$host:$FNTOOL"
+    shw scp -q "$0" "$user@$host:$FNTOOL"
 }
 sudo_no_pw_ensured=false
 function remote_ensure_sudo {
@@ -183,6 +195,10 @@ function remote_reset_sudo {
     echo -e 'mv /etc/sudoers.tool.bckup /etc/sudoers' | ssh "root@$host" || die "could not reset sudo"
 }
 function tool.remote {
+    test -z "${1:-}" && {
+        ssh "$remote_host"
+        return $?
+    }
     local ret remote_create=false remote_ensure_sudo=false remote_update_tool=false
     while getopts cSu opt; do
         case "$opt" in
@@ -194,38 +210,21 @@ function tool.remote {
     done
     shift $((OPTIND - 1))
 
-    local user host t && t="${1:-}" && shift
+    local user host t && t="$remote_host"
     test -z "$t" && die "Require ssh host"
     function ssharg { /usr/bin/ssh -G "$1" | grep "^$2 " | head -n1 | cut -d ' ' -f 2- | xargs; }
     host="$(ssharg "$t" hostname)"
     user="$(ssharg "$t" user)"
-    $remote_create && { silent ssh "$user@$host" echo || shw remote_create_user "$user" "$host"; }
-    $remote_update_tool && shw scp "$0" "$user@$host:$FNTOOL"
+    $remote_create && { silent ssh -oBatchMode=yes "$user@$host" echo || shw remote_create_user "$user" "$host"; }
+    $remote_update_tool && shw scp -q "$0" "$user@$host:$FNTOOL"
     "$remote_ensure_sudo" && shw remote_ensure_sudo "$user" "$host"
-    ssh "$user@$host" "TOOL_REMOTE_PW='${TOOL_REMOTE_PW:-notset}' $FNTOOL" "$@"
+    ssh "$user@$host" "$FNTOOL" "$@"
     ret=$?
     $sudo_no_pw_ensured && shw remote_reset_sudo "$host"
     return $ret
 }
-function main {
-    cmd="${1:-help}" && shift || true
-    case "$cmd" in
-        -x | --debug)
-            set -x
-            main "$@"
-            exit $?
-            ;;
-        -h | --help) tool.help "$@" ;;
-    esac
-    test "$cmd" = bs && cmd=bootstrap
-    test "$cmd" = s && cmd=status
-    test "$cmd" = "remote" || tool.ensure_runnable || true
-    grep -q "^function tool.$cmd " <"$0" || { tool.help false && die "Unsupported: $cmd"; }
-    "tool.$cmd" "$@"
-}
 
 function tool.ensure_runnable {
-    test -z "${TOOLSHELL:-}" && die "Only zsh or bash. sorry..." || true
     test -z "${OS:-}" && die "Only linux or osx. sorry..." || true
 }
 function tool.help {
@@ -252,6 +251,7 @@ function asdf.bootstrap {
     bootstrap_add_shell_hook "asdf" 'source "$HOME/.asdf/asdf.sh"'
 }
 function with_git_curl {
+    # $1 a function
     have git && have curl && {
         "$1" || die "could not run installer"
         return 0
@@ -259,28 +259,33 @@ function with_git_curl {
     nfo "installer requires git, curl -> installing via micromamba..."
     source_shell_hooks
     micromamba activate base
-    micromamba install -y git curl
+    shw micromamba install -y git curl
     "$1" || die "could not run installer"
 }
 function asdf.activate { silent . "$H/.asdf/asdf.sh"; }
 
-function micromamba.bootstrapped { have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install; }
+function micromamba.bootstrapped {
+    have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
+}
 function micromamba.status { micromamba info | grep 'base environment'; }
 function micromamba.bootstrap {
     export CONDA_FORGE_YES=yes
+    export INIT_YES=no
     local fn
     fn="$(tmpfn mamba_installer)"
     download "https://micro.mamba.pm/install.sh" "$fn"
     echo '' | "${SHELL}" <(cat "$fn")
     fn="$H/.condarc"
     grep -q "^auto_activate_base:" <"$fn" || echo -e 'auto_activate_base: true\n' >>"$fn"
+    local a="export MAMBA_EXE='$HOME/.local/bin/micromamba'"
+    a="$a\nexport MAMBA_ROOT_PREFIX='$HOME/micromamba'"
+    a=''$a'\neval "$($MAMBA_EXE shell hook -s bash -r $MAMBA_ROOT_PREFIX)"'
+    mkdir -p "$H/micromamba"
+    bootstrap_add_shell_hook micromamba "$a"
 }
-function micromamba.activate {
-    source_shell_hooks && micromamba activate base && shw micromamba install -y git curl
-    $1
+function nix.bootstrapped {
+    bash -ic 'nix --version'
 }
-
-function nix.bootstrapped { have nix; }
 function nix.bootstrap {
     local url fn && url="$NIX_URL" && fn="$(tmpfn instnix)"
     test "$(getenforce)" = "Enforcing" && {
@@ -288,7 +293,6 @@ function nix.bootstrap {
         url="$NIX_URL_SELINUX"
     }
     download "$url" "$fn" mkexe
-    set -x
     shw get_root || die 'Require sudo root to install nix'
     "$fn" --daemon
 }
@@ -308,4 +312,28 @@ function brew.bootstrap {
     test -e "$d" || with_git_curl brewinst
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
+function main {
+    title "$0 called with params $*"
+    local cmd
+    cmd="${1:-help}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -x | --debug) set -x ;;
+            -h | --help) cmd=help ;;
+            bs | bootstrap) cmd=bootstrap ;;
+            s | status) cmd=status ;;
+            *@*)
+                cmd=remote && remote_host="$1"
+                shift
+                break
+                ;;
+            *) break ;;
+        esac
+        shift
+    done
+
+    test "$cmd" = remote || { tool.ensure_runnable && source_shell_hooks; }
+    "tool.$cmd" "$@"
+}
+
 main "$@"
