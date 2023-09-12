@@ -1,8 +1,26 @@
 #!/usr/bin/env bash
-d_='Meta Tool Manager
+d_='# Meta Tool Manager
 
-## Design
+Manages meta tools
 
+## Examples
+
+---
+
+    ./tool remote -u x3@95.217.11.68 bs
+
+- Copies this version of tool over (-u) to ~/.local/bin
+- Installs for existing(!) x3 user on 95... the core tools binenev asdf micromamba
+
+---
+
+    pw=foo ./tool remote -Suc x3@95.217.11.68 bs -nb
+
+- Requires `ssh root@95...` login! Because:
+- Creates (-c) remotely user x3 with password foo
+- Copies this version of tool over (-u)
+- Ensures passwordless sudo during install (needed for nix (-n) and brew (-b))
+- Bootstraps (bs): binenv asdf micromamba nix brew
 
 '
 set -eu
@@ -83,8 +101,9 @@ function tool.status {
 
 function tool.bootstrap {
     local mgrs="$ALW_TOOLMGRS"
-    while getopts nb opt; do
+    while getopts onb opt; do
         case "$opt" in
+            o) mgrs="" ;; # must be before n and b
             n) mgrs="$mgrs nix" ;;
             b) mgrs="$mgrs brew" ;;
             ?) die "not supported: $opt" ;;
@@ -105,8 +124,10 @@ function tool.bootstrap {
     📓
     source_shell_hooks
     local inst=false
-    mgrs=nix # !!!!!!
-    for t in $mgrs; do "$t.bootstrapped" || { inst=true && shtit "$t.bootstrap"; }; done
+    #mgrs=nix # !!!!!!
+    for t in $mgrs; do
+        "$t.bootstrapped" && nfo "Have $t" || { inst=true && shtit "$t.bootstrap"; }
+    done
     $inst || { good "Already present: $mgrs" && return 0; }
     source_shell_hooks
     for t in $mgrs; do "$t.bootstrapped" || die "Could not bootstrap $t"; done
