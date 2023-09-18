@@ -341,6 +341,6 @@ function main {
     "tool.$cmd" "$@"
 }
 
-[ -z "$PS1" ] && if_not_bootstrapped_do_it
+[ -z "${PS1:-}" ] && if_not_bootstrapped_do_it
 
 main "$@"
