@@ -312,6 +312,11 @@ function brew.bootstrap {
     test -e "$d" || with_git_curl brewinst
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
+function if_not_bootstrapped_do_it {
+    test -e "$FNTOOL" && return
+    "$0" bootstrap
+    exit $?
+}
 function main {
     title "$0 called with params $*"
     local cmd
@@ -335,5 +340,7 @@ function main {
     test "$cmd" = remote || { tool.ensure_runnable && source_shell_hooks; }
     "tool.$cmd" "$@"
 }
+
+[ -z "$PS1" ] && if_not_bootstrapped_do_it
 
 main "$@"
