@@ -64,7 +64,7 @@ function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
 function mkexe { chmod +x "$1"; }
 function tmpfn { local d="/tmp/$USER.tool" && mkdir -p "$d" && echo "$d/$1"; }
-function waitfor { while true; do have "$1" && break || sleep 0.1 done; }
+function waitfor { while true; do have "$1" && break || sleep 0.1; done; }
 function download {
     silent wget -q "$1" -O "$2" || silent curl -L "$1" >"$2" || die "Download failed: $1 -> $2"
     test -z "${3:-}" && return 0
@@ -233,13 +233,13 @@ function brew.bootstrap {
     try rm -f "$d/tooltest"
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
-function if_not_bootstrapped_do_it {
+function cloud_init {
     # curl .... | tee tool | bash
     test -e "$HOME/.local/bin/tool" && return
     test -e ./toolinit || return
     chmod +x ./toolinit
     export non_interactive_tool_bootstrap=true
-    ./toolinit bootstrap
+    eval "./toolinit "${initargs:-}" bootstrap"
     exit $?
 }
 
@@ -271,15 +271,18 @@ function usermode {
                 download "$BREW_URL" /tmp/bi mkexe
                 have git || {
                     echo "brew requires git - installing..."
-                    have yum && yum install -y git
-                    have apt-get && apt-get install -y git
+                    have yum && silent yum install -y git
+                    have apt-get && silent apt-get install -y git
                 }
+                have git || die "could not install git required for homebrew"
                 NONINTERACTIVE=1 CI=1 /tmp/bi
             }
             chown -R "$user:$user" /home/linuxbrew/.linuxbrew
         }
     }
-    with_nix && waitfor nix
+    set -x
+    $with_nix && waitfor nix
+    set +x
     hu="$hu/.local/bin/tool"
     cp "$0" "$hu"
     chown -R "$user:$user" "$hu"
@@ -310,6 +313,6 @@ function main {
     "tool.$cmd" "$@"
 }
 
-test -z "${non_interactive_tool_bootstrap:-}" && { [ -t 0 ] || if_not_bootstrapped_do_it; }
+test -z "${non_interactive_tool_bootstrap:-}" && { [ -t 0 ] || cloud_init; }
 
 main "$@"
