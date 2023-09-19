@@ -29,7 +29,7 @@ When no user yet existing but we have root login:
 '
 set -eu
 NAME="tool"
-H="$HOME"
+H="${HOME:-/root}"
 FNTOOL="$H/.local/bin/$NAME"
 ALL_TOOLMGRS="binenv asdf micromamba nix brew" # brew nix"
 ALW_TOOLMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
