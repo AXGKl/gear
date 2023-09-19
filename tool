@@ -233,15 +233,6 @@ function brew.bootstrap {
     try rm -f "$d/tooltest"
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
-function cloud_init {
-    # curl .... | tee tool | bash
-    test -e "$HOME/.local/bin/tool" && return
-    test -e ./toolinit || return
-    chmod +x ./toolinit
-    export non_interactive_tool_bootstrap=true
-    eval "./toolinit "${initargs:-}" bootstrap"
-    exit $?
-}
 
 function usermode {
     local nb='' hu='' user=$1 && shift
@@ -262,7 +253,7 @@ function usermode {
     }
 
     test "$1" = bootstrap && {
-        $with_nix && silent nix.bootstrap & # speed here - server bootstrap
+        $with_nix && nix.bootstrap
         $with_nix && nb="-n"
         $with_brew && {
             nb="-b $nb"
@@ -280,9 +271,6 @@ function usermode {
             chown -R "$user:$user" /home/linuxbrew/.linuxbrew
         }
     }
-    set -x
-    $with_nix && waitfor nix
-    set +x
     hu="$hu/.local/bin/tool"
     cp "$0" "$hu"
     chown -R "$user:$user" "$hu"
@@ -312,7 +300,5 @@ function main {
     tool.ensure_runnable && source_shell_hooks
     "tool.$cmd" "$@"
 }
-
-test -z "${non_interactive_tool_bootstrap:-}" && { [ -t 0 ] || cloud_init; }
 
 main "$@"
