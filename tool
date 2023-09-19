@@ -29,10 +29,10 @@ When no user yet existing but we have root login:
 '
 set -eu
 NAME="tool"
-FNTOOL="~/.local/bin/$NAME"                    # keep tilde
+H="$HOME"
+FNTOOL="$H/.local/bin/$NAME"
 ALL_TOOLMGRS="binenv asdf micromamba nix brew" # brew nix"
 ALW_TOOLMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
-H="$HOME"
 MM_D_BASE="$H/micromamba"
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
 ARCH="amd64"
@@ -43,9 +43,8 @@ BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 NIX_URL="https://nixos.org/nix/install"
 NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
 FN_ACT_TOOLS="$H/.activate_tools"
-
-# internal
-remote_host=
+with_nix=false
+with_brew=false
 
 # ------------------------------------------------------------------------- UTILS
 function title { echo -e "\x1b[1;${2:-32}m$1\x1b[0m"; }
@@ -55,13 +54,17 @@ function err { echo -e "🟥 $*" >&2; }
 function die { set +x && err "$*" && exit 1; }
 function shw { echo -e "⚙️ $*" && "$@"; }
 function shtit { title "$@" 33 && "$@"; }
-
+function confirm {
+    local conf && echo "$* [y/N]? " && read -r conf
+    test "$conf" = "y" -o "$conf" = "y" && return 0 || die "Unconfirmed"
+}
 function silent { "$@" 2>/dev/null 1>/dev/null; }
 function try { silent "$@" || true; }
 function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
 function mkexe { chmod +x "$1"; }
 function tmpfn { local d="/tmp/$USER.tool" && mkdir -p "$d" && echo "$d/$1"; }
+function waitfor { while true; do have "$1" && break || sleep 0.1 done; }
 function download {
     silent wget -q "$1" -O "$2" || silent curl -L "$1" >"$2" || die "Download failed: $1 -> $2"
     test -z "${3:-}" && return 0
@@ -74,15 +77,6 @@ function set_sh_sep {
     SH_SEP2="# <<< $sep initialize <<<"
 }
 
-function get_root {
-    silent ls /root/ && return
-    # interactive? then pw is not set:
-    [[ $- == *i* ]] && { sudo echo '' || die "sry..."; }
-    [[ $- == *i* ]] && return 0
-    # need sudo password?
-    sudo -n true && return 0 # no pw req
-    die "Require pw less sudo for non-interactive remote installation"
-}
 function bootstrap_add_shell_hook {
     local fnt act name="$1" what="$2" fn="$FN_ACT_TOOLS"
     touch "$fn"
@@ -97,6 +91,10 @@ function bootstrap_add_shell_hook {
     grep -A 10000 "$SH_SEP2" <"$fn" | grep -v "$SH_SEP2" >>"$fnt"
     mv "$fnt" "$fn"
 }
+
+[ -t 0 ] && interactive=true || interactive=false
+silent ls /root/ && have_root=true || have_root=false
+
 # ------------------------------------------------------------------------- CMDS
 function activate_all { for k in $ALL_TOOLMGRS; do try "${k}.activate"; done; }
 
@@ -129,6 +127,7 @@ function tool.bootstrap {
     I.e. the bootstrapping process does add the shell hook to `.<bash | zsh >rc`.
     User can change that and eval in other places but those should be evaled FROM shellrc as well.
     📓
+    test -e "$HOME/.local/bin/tool" || { mkdir -p "$HOME/.local/bin" && cp "$0" "$HOME/.local/bin/tool"; }
     act="source $FN_ACT_TOOLS"
     grep -q "^$act" <"$HOME/.bashrc" || {
         local fn && fn="$(tmpfn brc)" # maybe no sed
@@ -144,84 +143,6 @@ function tool.bootstrap {
     source_shell_hooks
     for t in $mgrs; do "$t.bootstrapped" || die "Could not bootstrap $t"; done
     tool.status || true
-}
-
-function remote_create_user {
-    local user="$1" host="$2"
-    function addu {
-        local pw && pw="${pw:-}"
-        pw="${TOOL_REMOTE_PW:-$pw}"
-        echo -e '
-        user="'$user'"; pw="'$pw'"
-        set -e
-        useradd -md "/home/$user" -s /bin/bash "$user" || echo "User exists already"
-        mkdir -p "/home/$user/.ssh"
-        cp .ssh/authorized_keys "/home/$user/.ssh/"
-        chown -R "$user:$user" "/home/$user/.ssh"
-        su - "$user" -c "mkdir -p .local/bin"
-        test -z "$pw" && exit
-        echo "Setting password"
-        echo -e "$pw\n$pw\n" | passwd "$user"
-        '
-    }
-    addu "$user" | ssh "root@$host" || die "Have no root access to $host"
-    shw scp -q "$0" "$user@$host:$FNTOOL"
-}
-sudo_no_pw_ensured=false
-function remote_ensure_sudo {
-    local pw user="$1" host="$2"
-    silent ssh "$user@$host" ls /root/ && {
-        nfo "user has root perms, no sudo required"
-        return 0
-    }
-    function ensure_sudo {
-        echo -e '
-        user="'$user'"
-        function have { hash "${1:-sudo}" 2>/dev/null; }
-        have || { have yum && yum install -y sudo; }
-        have || { have apt-get && apt-get install -y sudo; }
-        have || { echo "could not install sudo"; exit 1; }
-        cp /etc/sudoers /etc/sudoers.tool.bckup
-        l="$user    ALL=(ALL)  NOPASSWD: ALL"
-        echo -e "$l\n" >> /etc/sudoers
-        echo -e "🟥 \""$l"\" added to /etc/sudoers!!" 
-        '
-    }
-    ensure_sudo "$user" | ssh "root@$host" || die "Have no root access to $host"
-    sudo_no_pw_ensured=true
-}
-function remote_reset_sudo {
-    local host="$1"
-    echo -e 'mv /etc/sudoers.tool.bckup /etc/sudoers' | ssh "root@$host" || die "could not reset sudo"
-}
-function tool.remote {
-    test -z "${1:-}" && {
-        ssh "$remote_host"
-        return $?
-    }
-    local ret remote_create=false remote_ensure_sudo=false remote_update_tool=false
-    while getopts cSu opt; do
-        case "$opt" in
-            c) remote_create=true ;;
-            S) remote_ensure_sudo=true ;;
-            u) remote_update_tool=true ;;
-            ?) break ;;
-        esac
-    done
-    shift $((OPTIND - 1))
-
-    local user host t && t="$remote_host"
-    test -z "$t" && die "Require ssh host"
-    function ssharg { /usr/bin/ssh -G "$1" | grep "^$2 " | head -n1 | cut -d ' ' -f 2- | xargs; }
-    host="$(ssharg "$t" hostname)"
-    user="$(ssharg "$t" user)"
-    $remote_create && { silent ssh -oBatchMode=yes "$user@$host" echo || shw remote_create_user "$user" "$host"; }
-    $remote_update_tool && shw scp -q "$0" "$user@$host:$FNTOOL"
-    "$remote_ensure_sudo" && shw remote_ensure_sudo "$user" "$host"
-    ssh "$user@$host" "$FNTOOL" "$@"
-    ret=$?
-    $sudo_no_pw_ensured && shw remote_reset_sudo "$host"
-    return $ret
 }
 
 function tool.ensure_runnable {
@@ -256,11 +177,12 @@ function with_git_curl {
         "$1" || die "could not run installer"
         return 0
     }
-    nfo "installer requires git, curl -> installing via micromamba..."
+    nfo "installer requires git, curl -> installing via micromamba (up to 1 min...)"
     source_shell_hooks
     micromamba activate base
-    shw micromamba install -y git curl
+    shw silent micromamba install -y git curl 1>/dev/null
     "$1" || die "could not run installer"
+    shw type git
 }
 function asdf.activate { silent . "$H/.asdf/asdf.sh"; }
 
@@ -287,60 +209,107 @@ function nix.bootstrapped {
     bash -ic 'nix --version'
 }
 function nix.bootstrap {
+    nix.bootstrapped && return 0
     local url fn && url="$NIX_URL" && fn="$(tmpfn instnix)"
     test "$(getenforce)" = "Enforcing" && {
         hash semanage || die "Require semanage on an selinux system"
         url="$NIX_URL_SELINUX"
     }
     download "$url" "$fn" mkexe
-    shw get_root || die 'Require sudo root to install nix'
-    "$fn" --daemon
+    "$fn" --daemon --yes # asks for sudo if not root
 }
 function nix.status { nix doctor; }
 
 function brew.bootstrapped { have brew; }
 function brew.status { brew list; }
+function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")"; }
 function brew.bootstrap {
-    shw get_root || die 'Require sudo root to install linuxbrew'
-    function brewinst {
-        export NONINTERACTIVE=1
-        /bin/bash -c "$(curl -fsSL "$BREW_URL")"
-    }
     local d="/home/linuxbrew/.linuxbrew"
-    test -e "$d" && { have sudo && sudo chown -R $(whoami) "$d"; }
-    test -e "$d" && { have sudo || chown -R $(whoami) "$d"; }
-    test -e "$d" || with_git_curl brewinst
+    silent touch "$d/tooltest" || {
+        test -e "$d" && { have sudo && sudo chown -R $(whoami) "$d"; }
+        test -e "$d" && { have sudo || chown -R $(whoami) "$d"; }
+        test -e "$d" || with_git_curl brewinst
+    }
+    try rm -f "$d/tooltest"
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
 function if_not_bootstrapped_do_it {
-    test -e "$FNTOOL" && return
-    "$0" bootstrap
+    # curl .... | tee tool | bash
+    test -e "$HOME/.local/bin/tool" && return
+    test -e ./toolinit || return
+    chmod +x ./toolinit
+    export non_interactive_tool_bootstrap=true
+    ./toolinit bootstrap
+    exit $?
+}
+
+function usermode {
+    local nb='' hu='' user=$1 && shift
+    test "$(whoami)" = "$user" && return 0
+    test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
+    hu="/home/$user"
+
+    su - "$user" -c 'echo ""' || {
+        $interactive && confirm "ok to create user $user"
+        useradd -md "$hu" -s /bin/bash "$user" || echo "User exists already"
+        mkdir -p "$hu/.ssh"
+        test -e "$HOME/.ssh/authorized_keys" && {
+            cp "$HOME/.ssh/authorized_keys" "$hu/.ssh/" # handy on server installs
+            chown -R "$user:$user" "$hu/.ssh"
+        }
+        su - "$user" -c "mkdir -p $hu/.local/bin"
+        chown -R "$user:$user" "$hu/.local"
+    }
+
+    test "$1" = bootstrap && {
+        $with_nix && silent nix.bootstrap & # speed here - server bootstrap
+        $with_nix && nb="-n"
+        $with_brew && {
+            nb="-b $nb"
+            test -e "/home/linuxbrew/.linuxbrew" || {
+                touch /.dockerenv # then brew will not complain about root
+                download "$BREW_URL" /tmp/bi mkexe
+                have git || {
+                    echo "brew requires git - installing..."
+                    have yum && yum install -y git
+                    have apt-get && apt-get install -y git
+                }
+                NONINTERACTIVE=1 CI=1 /tmp/bi
+            }
+            chown -R "$user:$user" /home/linuxbrew/.linuxbrew
+        }
+    }
+    with_nix && waitfor nix
+    hu="$hu/.local/bin/tool"
+    cp "$0" "$hu"
+    chown -R "$user:$user" "$hu"
+    su - "$user" -c "eval $hu $* $nb"
     exit $?
 }
 function main {
-    title "$0 called with params $*"
-    local cmd
+    title "$0 $*"
+    local cmd user=''
     cmd="${1:-help}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            -NB) with_nix=true && with_brew=true ;;
+            -N | --with-nix) with_nix=true ;;
+            -B | --with-brew) with_brew=true ;;
+            -u | --user) user="$2" && shift ;;
             -x | --debug) set -x ;;
-            -h | --help) cmd=help ;;
-            bs | bootstrap) cmd=bootstrap ;;
-            s | status) cmd=status ;;
-            *@*)
-                cmd=remote && remote_host="$1"
-                shift
-                break
-                ;;
-            *) break ;;
+            -h | --help) cmd=help && break ;;
+            s | status) cmd=status && break ;;
+            bs | bootstrap) cmd=bootstrap && break ;;
+            *) echo "$1 not supported" && exit 1 ;;
         esac
         shift
     done
-
-    test "$cmd" = remote || { tool.ensure_runnable && source_shell_hooks; }
+    shift
+    test -z "$user" || usermode "$user" "$cmd" "$@"
+    tool.ensure_runnable && source_shell_hooks
     "tool.$cmd" "$@"
 }
 
-[ -z "${PS1:-}" ] && if_not_bootstrapped_do_it
+test -z "${non_interactive_tool_bootstrap:-}" && { [ -t 0 ] || if_not_bootstrapped_do_it; }
 
 main "$@"
