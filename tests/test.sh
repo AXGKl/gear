@@ -19,10 +19,17 @@ function get_clean_fs {
     cp "gear" "$d_test/"
 }
 
+function in_fs { sudo systemd-nspawn -D "$d_test" "$@"; }
+
 function main {
-    get_clean_fs
-    sudo systemd-nspawn -D "$d_test" /gear -x -y -u user up
+    #get_clean_fs
+    #sudo systemd-nspawn -D "$d_test" /gear -x -y -u user up
     #sudo systemd-nspawn -D "$d_test" /gear -y -u user up
+    in_fs /gear $ -y -u user1 -NB up
+    for g in binenv asdf micromamba nix brew; do
+        in_fs su - user1 type "$g"
+    done
+
 }
 
 main "$@"

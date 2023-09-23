@@ -83,6 +83,7 @@ case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
 BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
 ASDF_REPO="https://github.com/asdf-vm/asdf.git"
 BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+BREW_DIR="/home/linuxbrew/.linuxbrew" # only here it's fast (bins work). this is not conda...
 NIX_URL="https://nixos.org/nix/install"
 NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
 FN_ACT_GEARS="$H/.activate_gears"
@@ -429,9 +430,9 @@ function nix.status { nix doctor; }
 
 function brew.bootstrapped { have brew; }
 function brew.status { brew list; }
-function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")"; }
+function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")" && "$BREW_DIR/bin/brew" install hello; }
 function brew.bootstrap {
-    local d="/home/linuxbrew/.linuxbrew"
+    local d="$BREW_DIR"
     silent touch "$d/geartest" || { # already owned?
         test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
         test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
@@ -464,8 +465,11 @@ function gear_for_user_by_root {
 
     test "$1" = bootstrap && {
         have wget || have curl || inst_sys wget
-        $with_nix && nix.bootstrap
-        $with_nix && nb="-n"
+        $with_nix && {
+            nb="-n $nb"
+            have xz || inst_sys xz
+            nix.bootstrap
+        }
         $with_brew && {
             nb="-b $nb"
             test -e "/home/linuxbrew/.linuxbrew" || {
