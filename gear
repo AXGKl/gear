@@ -165,13 +165,13 @@ silent ls /root/ && have_root=true || have_root=false
 _INST_GEARMGRS='' # all installed
 _CUR_GEARMGR=''   # the one(s) to use (optionally set by install spec)
 
-function installed_gearmgrs {
+function set_installed_gearmgrs {
     local m a=''
     for m in $ALL_GEARMGRS; do
         silent "$m.bootstrapped" || continue
         a="$a $m"
     done
-    echo "$a" | xargs
+    _INST_GEARMGRS="$(echo "$a" | xargs)"
 }
 
 function single_gear_inst {
@@ -244,13 +244,13 @@ function brew.query {
 
 function gear.query {
     local ti
-    _INST_GEARMGRS="$(installed_gearmgrs)"
+    set_installed_gearmgrs
     have rg || silent binenv install rg
     for ti in $_INST_GEARMGRS; do title "Query $ti" && "$ti.query" "${1:-}" || true; done
 }
 function gear.list {
     local ti
-    _INST_GEARMGRS="$(installed_gearmgrs)"
+    set_installed_gearmgrs
     for ti in $_INST_GEARMGRS; do title "Installed by: $ti" && "$ti.list" | grep "${1:-}" || true; done
 }
 function gear.install {
@@ -259,12 +259,13 @@ function gear.install {
     rm -f "$tmp_spec"
     # allow gear i @nix nodejs AND gear i \$nix nodejs
     while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
+    silent cat "$tmp_spec"
     gear.sync -f "$tmp_spec"
 }
 
 function gear.sync {
     local fn t ti gear='' spec="./gears" match=''
-    _INST_GEARMGRS="$(installed_gearmgrs)"
+    set_installed_gearmgrs
     _CUR_GEARMGR="$_INST_GEARMGRS"
 
     while getopts f:m: opt; do
