@@ -9,7 +9,7 @@ on:
       - master
  
 jobs:
-  test:
+  testmac:
     name: baseinst_mac
     runs-on: macos-13
     steps:
