@@ -419,7 +419,7 @@ function nix.bootstrapped {
 function nix.bootstrap {
     nix.bootstrapped && return 0
     local url fn && url="$NIX_URL" && fn="$(tmpfn instnix)"
-    test "$(getenforce)" = "Enforcing" && {
+    test "$(getenforce 2>/dev/null)" = "Enforcing" && {
         hash semanage || die "Require semanage on an selinux system"
         url="$NIX_URL_SELINUX"
     }
