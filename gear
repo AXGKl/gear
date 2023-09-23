@@ -197,7 +197,7 @@ function binenv.install { binenv install "$1" "${2:-}"; }
 
 function asdf.install {
     local ver="${2:-latest}"
-    shw asdf plugin add "$1" || return 1
+    ( shw asdf plugin add "$1" ) || return 1
     shw asdf install "$1" "$ver"
     shw asdf global "$1" "$ver" # writes to ~/.gear-versions
 }
