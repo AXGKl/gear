@@ -10,6 +10,17 @@ on:
  
 jobs:
   test:
+    name: baseinst_mac
+    runs-on: macos-13
+    steps:
+       - name: Get source
+         uses: actions/checkout@v3
+       - name: test
+         run: |
+            ./gear up
+    
+ 
+  test:
     name: baseinst
     runs-on: ubuntu-22.04
     
