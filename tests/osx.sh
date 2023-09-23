@@ -13,13 +13,13 @@ function main {
     echo "$PATH"
 
     gear install gdu
-    gdu -n
+    gdu -n ./hostedtoolcache
 
     gear install nodejs # asdf
     node --version
 
     cat .condarc | grep auto_update_conda | grep false
-    gear install redis-server
+    gear -x install redis-server
     redis-server --version
 
 }
