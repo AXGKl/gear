@@ -127,6 +127,7 @@ function inst_sys { # git wget or curl
     test "$(whoami)" = "root" || die "Require to be root for this. Sry..."
     local pkg="$1"
     test "$pkg" = "su" && pkg=util-linux
+    have apt && test "$pkg" = "xz" && pkg="xz-utils"
     nfo "Require to have package $pkg on the system"
     have yum && silent yum install -y "$pkg"
     have apt && { silent apt install -y "$pkg" || silent apt update && silent apt install -y "$pkg"; }
