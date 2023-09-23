@@ -16,8 +16,8 @@ jobs:
     steps:
       - name: Setup Podman
         run: |
-          sudo apt update
-          sudo apt-get -y install podman
+          #sudo apt update
+          sudo apt-get -qy install podman
           podman pull fedora:38
           podman pull debian:12
 

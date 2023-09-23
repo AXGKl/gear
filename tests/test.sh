@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-set -e
-fs="$!"
+set -xe
+fs="$1"
 here="$(dirname "$0")"
 
-function clean_fs {
+function into_clean_fs {
     cd "$here"
     cd ../
     rm -rf "$fs"
@@ -12,11 +12,12 @@ function clean_fs {
     mkdir "$fs"
     cd "$fs"
     podman export "$img" | tar xf -
+    podman rm "$img"
     cp ../gear .
 }
 
 function main {
-    clean_fs
+    into_clean_fs
     sudo chroot . ./gear -u user up
 }
 
