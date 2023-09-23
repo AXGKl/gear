@@ -178,12 +178,12 @@ function single_gear_inst {
     # requires $_CUR_GEARMGR to be set (a list)!
     test -z "$_CUR_GEARMGR" && die "\$_CUR_GEARMGR not initialized"
     local v='' t='' gear="$1" ver="${2:-}"
-    nfo "Gear: $gear. version: $ver. Using $_CUR_GEARMGR"
+    nfo "Gear: $gear. version: $ver. Trying $_CUR_GEARMGR"
     for t in $_CUR_GEARMGR; do
         v="$("$t.have" "$gear")"
         test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $gear $v [$t]" && return 0; }
         test -z "$v" || nfo "Wrong version: $t $gear $v"
-        shw "$t.install" "$gear" "$ver" && return 0
+        shw "$t.install" "$gear" "$ver" && return 0 || true
     done
     die "$gear: No installer found"
 }
@@ -193,11 +193,11 @@ function micromamba.have { micromamba list -q --json "$1" | grep version | cut -
 function nix.have { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
 function brew.have { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
 
-function binenv.install { shw binenv install "$1" "${2:-}"; }
+function binenv.install { binenv install "$1" "${2:-}"; }
 
 function asdf.install {
     local ver="${2:-latest}"
-    shw asdf plugin add "$1"
+    shw asdf plugin add "$1" || return 1
     shw asdf install "$1" "$ver"
     shw asdf global "$1" "$ver" # writes to ~/.gear-versions
 }
