@@ -19,8 +19,8 @@ function main {
     node --version
 
     cat .condarc | grep auto_update_conda | grep false
-    gear -x install redis-server
-    redis-server --version
+    gear install redis-server
+    redis-server --version 
 
 }
 main "$@"

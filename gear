@@ -197,7 +197,7 @@ function binenv.install { binenv install "$1" "${2:-}"; }
 
 function asdf.install {
     local ver="${2:-latest}"
-    ( shw asdf plugin add "$1" ) || return 1
+    (shw asdf plugin add "$1") || return 1
     shw asdf install "$1" "$ver"
     shw asdf global "$1" "$ver" # writes to ~/.gear-versions
 }
@@ -478,6 +478,7 @@ function gear_for_user_by_root {
                 touch /.dockerenv # then brew will not complain about root
                 download "$BREW_URL" /tmp/bi chmod_
                 have git || inst_sys git
+                have curl || inst_sys curl
                 NONINTERACTIVE=1 CI=1 /tmp/bi
             }
             chown -R "$user:$user" /home/linuxbrew/.linuxbrew
