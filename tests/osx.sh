@@ -6,19 +6,20 @@ here="$(pwd)"
 function main {
     echo "$PATH"
     ./gear up || true
-    cd "$HOME"
+    PATH="$HOME/.local/bin:$PATH"
 
+    cd "$HOME"
     source .activate_gears || true
     echo "$PATH"
 
-    binenv install gdu
+    gear install gdu
     gdu -n
 
-    asdf install nodejs
+    gear install nodejs # asdf
     node --version
 
     cat .condarc | grep auto_update_conda | grep false
-    micromamba install -y redis-server
+    gear install redis-server
     redis-server --version
 
 }
