@@ -6,12 +6,20 @@ here="$(pwd)"
 function main {
     echo "$PATH"
     ./gear up || true
-    cd $HOME
-    ls -lta
+    cd "$HOME"
+
     source .activate_gears || true
+    echo "$PATH"
+
     binenv install gdu
-    cat .condarc || true
-    micromamba install redis-server
-    
+    gdu -n
+
+    asdf install nodejs
+    node --version
+
+    cat .condarc | grep auto_update_conda | grep false
+    micromamba install -y redis-server
+    redis-server --version
+
 }
 main "$@"
