@@ -16,9 +16,8 @@ jobs:
     steps:
       - name: Setup Podman1
         run: |
-          systemd-nspawn --version || true
-          sudo apt update
-          sudo apt-get -qy install podman systemd-nspawn
+          #sudo apt update
+          sudo apt-get -qy install podman systemd-container
           podman pull fedora:38
           podman pull debian:12
 
