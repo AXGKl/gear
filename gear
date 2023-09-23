@@ -1,37 +1,79 @@
 #!/usr/bin/env bash
 d_='# Meta Tool Manager
 
-Manages meta tools
+Manages package managers which work in user mode.
 
-## Examples
 
----
+## Bootstrapping (Installing the ToolManagers)
 
-When account already exists:
+### As User
 
-    ./tool x3@95.217.11.68 -u bs
+    ./tool bootstrap [-nb]
 
-- Copies this version of tool over (-u) to ~/.local/bin
-- Installs (bs alias for bootstrap) for x3 user on 95... the core tools: binenev asdf micromamba
+installs micromamba binenv asdf and optional (then requiring sudo at bootstrap time), nix and homebrew (-nb).
 
----
+## Cloud Init (e.g. as root)
 
-When no user yet existing but we have root login:
+This
 
-    pw=foo ./tool x3@95.217.11.68 -Suc bs -nb
+    #cloud-config
 
-- Requires `ssh root@95...` login! Because:
-- Creates (-c) user x3 with password foo ($pw set when running)
-- Copies this version of tool over (-u)
-- Ensures passwordless sudo during install (-S) (needed for nix (-n) and brew (-b))
-- Bootstraps (bs): binenv asdf micromamba nix brew
+    runcmd:
+    - wget "https://raw.githubusercontent.com/AXGKl/tool/master/tool"
+    - chmod +x tool
+    - ./tool -NB -u gk bootstrap
 
+* creates a user gk (incl. authorized_keys of root) if not existing
+* installs nix and linuxbrew (optional -NB) as root on the system
+* chown of /home/linuxbrew/.linuxbrew for gk
+* installs for user gk:
+   - micromamba
+   - binenv
+   - asdf
+* puts linuxbrew into the path
+
+
+
+## Usage (Installing Tools)
+
+### Spec
+
+    tool sync|S [-f specfile] [-m match]
+
+Specfile default: "./tools"
+
+
+#### Spec Format
+
+- <toolpackagename> [version] # optional comment (for matching)
+- Line starting with $: Forces specific toolmanager until next $ line (default: auto, try all in order: binenv asdf nix micromamba brew)
+- Shell syntax (# vim:ft=sh for syn hilite)
+- Lines starting with # or empty : ignored
+
+
+#### Example
+
+    gdu 5.3.1
+    neovim 0.9.1
+
+    '\$'brew
+    fzf
+
+    '\$'nix
+    firefox
+
+
+# Nix
+
+    nix repl --expr "import <nixpkgs>{}" -> type firef<TAB>
 '
+
 set -eu
+unset IFS
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 H="$HOME"
-ALL_TOOLMGRS="binenv asdf micromamba nix brew" # brew nix"
+ALL_TOOLMGRS="binenv asdf nix micromamba brew" # brew nix"
 ALW_TOOLMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
 MM_D_BASE="$H/micromamba"
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
@@ -45,14 +87,15 @@ NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scr
 FN_ACT_TOOLS="$H/.activate_tools"
 with_nix=false
 with_brew=false
-
+export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
 # ------------------------------------------------------------------------- UTILS
-function title { echo -e "\x1b[1;${2:-32}m$1\x1b[0m"; }
-function nfo { echo -e "(ℹ️) $*"; }
-function good { echo -e "🟩 $*"; }
-function err { echo -e "🟥 $*" >&2; }
+function out { echo -e "$*" >&2; }
+function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
+function nfo { out "(ℹ️) $*"; }
+function good { out "🟩 $*"; }
+function err { out "🟥 $*"; }
 function die { set +x && err "$*" && exit 1; }
-function shw { echo -e "⚙️ $*" && "$@"; }
+function shw { out "⚙️ $*" && "$@"; }
 function shtit { title "$@" 33 && "$@"; }
 function confirm {
     local conf && echo "$* [y/N]? " && read -r conf
@@ -96,6 +139,145 @@ function bootstrap_add_shell_hook {
 silent ls /root/ && have_root=true || have_root=false
 
 # ------------------------------------------------------------------------- CMDS
+
+# -------------------------------------------------- Specific tools installation
+
+_INST_TOOLMGRS='' # all installed
+_CUR_TOOLMGR=''   # the one(s) to use (optionally set by install spec)
+
+function installed_toolmgrs {
+    local m a=''
+    for m in $ALL_TOOLMGRS; do
+        silent "$m.bootstrapped" || continue
+        a="$a $m"
+    done
+    echo "$a" | xargs
+}
+
+function single_tool_inst {
+    # requires $_CUR_TOOLMGR to be set (a list)!
+    test -z "$_CUR_TOOLMGR" && die "\$_CUR_TOOLMGR not initialized"
+    local v='' t='' tool="$1" ver="${2:-}"
+    nfo "Tool: $tool. version: $ver. Using $_CUR_TOOLMGR"
+    for t in $_CUR_TOOLMGR; do
+        v="$("$t.have" "$tool")"
+        test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $tool $v [$t]" && return 0; }
+        test -z "$v" || nfo "Wrong version: $t $tool $v"
+        shw "$t.install" "$tool" "$ver" && return 0
+    done
+    die "$tool: No installer found"
+}
+function binenv.have { binenv versions -f | grep "^$1" | cut -d = -f 2 | xargs; }
+function asdf.have { asdf list "$1" | sed -e 's/*//g' | xargs; }
+function micromamba.have { micromamba list -q --json "$1" | grep version | cut -d : -f 2 | xargs; }
+function nix.have { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
+function brew.have { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
+
+function binenv.install { shw binenv install "$1" "${2:-}"; }
+
+function asdf.install {
+    local ver="${2:-latest}"
+    shw asdf plugin add "$1"
+    shw asdf install "$1" "$ver"
+    shw asdf global "$1" "$ver" # writes to ~/.tool-versions
+}
+function micromamba.install {
+    local t="$1" && test -z "${2:-}" || t="$t==$2"
+    shw micromamba install -q -y "$t"
+}
+function nix.install {
+    # nix-env -iA nixpkgs.python3Packages.zodb => installs lib
+    # OR from https://lazamar.co.uk/nix-versions/?channel=nixos-unstable&package=nodejs:
+    # nix-env -iA nodejs_20 -b -f https://github.com/NixOS/nixpkgs/archive/976fa3369d722e76f37c77493d99829540d43845.tar.gz
+    local is_tar=false ver="${2:-}"
+    echo "$ver" | grep -q '.tar' && is_tar=true
+    test -z "$ver" && {
+        shw nix-env --prebuilt-only -iA "nixpkgs.$1"
+        return $?
+    }
+    $is_tar && {
+        shw nix-env --prebuilt-only -iA "$1" -f "https://github.com/NixOS/nixpkgs/archive/$2"
+        return $?
+    }
+    return 1
+}
+function brew.install {
+    local t="$1" && test -z "${2:-}" || t="$t@$2"
+    brew install "$t"
+}
+function binenv.list { binenv versions -f; }
+function asdf.list { asdf list; }
+function micromamba.list { micromamba list; }
+function nix.list { nix-env --query; }
+function brew.list { brew list --versions; }
+
+function binenv.query { binenv search "$1"; }
+function asdf.query { ls "$HOME/.asdf/repository/plugins" | grep "${1:-}"; }
+function micromamba.query { rg "$1" | grep name | cut -d : -f 3 | uniq; }
+function nix.query { cd "/nix/var/nix/profiles/per-user/root/channels/nixpkgs/pkgs" && rg "$1"; }
+function brew.query {
+    cd /home/linuxbrew/.linuxbrew
+    test -e "./homebrew-core" || git clone --depth=1 https://github.com/Homebrew/homebrew-core
+    cd homebrew-core
+    rg -A1 'desc ' | rg -A1 -i "$1"
+}
+
+function tool.query {
+    local ti
+    _INST_TOOLMGRS="$(installed_toolmgrs)"
+    have rg || silent binenv install rg
+    for ti in $_INST_TOOLMGRS; do title "Query $ti" && "$ti.query" "${1:-}" || true; done
+}
+function tool.list {
+    local ti
+    _INST_TOOLMGRS="$(installed_toolmgrs)"
+    for ti in $_INST_TOOLMGRS; do title "Installed by: $ti" && "$ti.list" | grep "${1:-}" || true; done
+}
+function tool.install {
+    # write a "spec" and sync it:
+    local tmp_spec && tmp_spec="$(tmpfn pkgs)"
+    rm -f "$tmp_spec"
+    # allow tool i @nix nodejs AND tool i \$nix nodejs
+    while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
+    tool.sync -f "$tmp_spec"
+}
+
+function tool.sync {
+    local fn t ti tool='' spec="./tools" match=''
+    _INST_TOOLMGRS="$(installed_toolmgrs)"
+    _CUR_TOOLMGR="$_INST_TOOLMGRS"
+
+    while getopts f:m: opt; do
+        case "$opt" in
+            f) spec="$OPTARG" ;;
+            m) match="$OPTARG" ;;
+            ?) die "not supported: $opt" ;;
+        esac
+    done
+    test -e "$spec" || die "Not found spec file $spec"
+    # read the spec, line by line. lines starting with $ set the cur_toolmgr:
+    while read -r p; do
+        tool="$(echo "$p" | grep -v "^#" | xargs)"
+        test -z "$tool" && continue
+        t=false
+        test "$tool" = "\$mm" && tool="\$micromamba"
+        test "$tool" = "\$auto" && _CUR_TOOLMGR="$_INST_TOOLMGRS" && t=true
+        for ti in $_INST_TOOLMGRS; do
+            test "$tool" = "\$${ti}" && {
+                _CUR_TOOLMGR="${tool#\$*}"
+                t=true
+                break
+            }
+        done
+        $t && continue
+        echo "$tool" | grep -q "$match" || { nfo "Skipping $tool" && continue; }
+        tool="${tool%#*}" # cut off comments (which match)
+        title "Try install $tool"
+        eval 'single_tool_inst '$tool''
+    done <"$spec"
+}
+
+# -------------------------------------------------- Tool Manager Operations
 function activate_all { for k in $ALL_TOOLMGRS; do try "${k}.activate"; done; }
 
 function tool.status {
@@ -190,15 +372,20 @@ function micromamba.bootstrapped {
     have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
 }
 function micromamba.status { micromamba info | grep 'base environment'; }
+function set_condarc { grep -q "^$2:" <"$1" || echo -e "$3\n" >>"$1"; }
 function micromamba.bootstrap {
     export CONDA_FORGE_YES=yes
     export INIT_YES=no
     local fn
     fn="$(tmpfn mamba_installer)"
     download "https://micro.mamba.pm/install.sh" "$fn"
-    echo '' | "${SHELL}" <(cat "$fn")
+    echo '' | "${SHELL}" <(cat "$fn") # install
+
     fn="$H/.condarc"
-    grep -q "^auto_activate_base:" <"$fn" || echo -e 'auto_activate_base: true\n' >>"$fn"
+    set_condarc "$fn" "auto_activate_base" 'auto_activate_base: true'
+    set_condarc "$fn" "auto_update_conda" 'auto_update_conda: false'
+    set_condarc "$fn" 'pkgs_dirs' "pkgs_dirs:\n  - \${HOME}/micromamba/pkgs"
+
     local a="export MAMBA_EXE='$HOME/.local/bin/micromamba'"
     a="$a\nexport MAMBA_ROOT_PREFIX='$HOME/micromamba'"
     a=''$a'\neval "$($MAMBA_EXE shell hook -s bash -r $MAMBA_ROOT_PREFIX)"'
@@ -225,9 +412,9 @@ function brew.status { brew list; }
 function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")"; }
 function brew.bootstrap {
     local d="/home/linuxbrew/.linuxbrew"
-    silent touch "$d/tooltest" || {
-        test -e "$d" && { have sudo && sudo chown -R $(whoami) "$d"; }
-        test -e "$d" && { have sudo || chown -R $(whoami) "$d"; }
+    silent touch "$d/tooltest" || { # already owned?
+        test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
+        test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
         test -e "$d" || with_git_curl brewinst
     }
     try rm -f "$d/tooltest"
@@ -235,6 +422,7 @@ function brew.bootstrap {
 }
 
 function usermode {
+    # root installs for a specific user - creating it:
     local nb='' hu='' user=$1 && shift
     test "$(whoami)" = "$user" && return 0
     test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
@@ -277,6 +465,7 @@ function usermode {
     su - "$user" -c "eval $hu $* $nb"
     exit $?
 }
+# -------------------------------------------------- main
 function main {
     title "$0 $*"
     local cmd user=''
@@ -289,12 +478,18 @@ function main {
             -u | --user) user="$2" && shift ;;
             -x | --debug) set -x ;;
             -h | --help) cmd=help && break ;;
-            s | status) cmd=status && break ;;
             bs | bootstrap) cmd=bootstrap && break ;;
+            i | install) cmd=install && break ;;
+            l | list) cmd=list && break ;;
+            q | query) cmd=query && break ;;
+            s | status) cmd=status && break ;;
+            S | sync) cmd=sync && break ;;
+            2readme) "$0" -h 2>/dev/null >README.md && exit ;;
             *) echo "$1 not supported" && exit 1 ;;
         esac
         shift
     done
+    test "$cmd" = "help" && tool.help "$@" # exits
     shift
     test -z "$user" || usermode "$user" "$cmd" "$@"
     tool.ensure_runnable && source_shell_hooks
