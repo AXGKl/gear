@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     
     steps:
-      - name: Setup Podman1
+      - name: GetFilesystems
         run: |
           #sudo apt update
           sudo apt-get -qy install podman systemd-container

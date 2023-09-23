@@ -23,7 +23,7 @@ function in_fs { sudo systemd-nspawn -D "$d_test" "$@"; }
 
 function main {
     get_clean_fs
-    in_fs /gear $ -y -u user1 -NB up
+    in_fs /gear -y -u user1 -NB up
     for g in binenv asdf micromamba nix brew; do
         in_fs su - user1 type "$g"
     done
