@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-d_='# Meta Tool Manager
+d_='# Meta Gear Manager
 
 Manages package managers which work in user mode.
 
 
-## Bootstrapping (Installing the ToolManagers)
+## Bootstrapping (Installing the GearManagers)
 
 ### As User
 
-    ./tool bootstrap [-nb]
+    ./gear bootstrap [-nb]
 
 installs micromamba binenv asdf and optional (then requiring sudo at bootstrap time), nix and homebrew (-nb).
 
@@ -19,9 +19,9 @@ This
     #cloud-config
 
     runcmd:
-    - wget "https://raw.githubusercontent.com/AXGKl/tool/master/tool"
-    - chmod +x tool
-    - ./tool -NB -u gk bootstrap
+    - wget "https://raw.githubusercontent.com/AXGKl/gear/master/gear"
+    - chmod +x gear
+    - ./gear -NB -u gk bootstrap
 
 * creates a user gk (incl. authorized_keys of root) if not existing
 * installs nix and linuxbrew (optional -NB) as root on the system
@@ -34,19 +34,19 @@ This
 
 
 
-## Usage (Installing Tools)
+## Usage (Installing Gears)
 
 ### Spec
 
-    tool sync|S [-f specfile] [-m match]
+    gear sync|S [-f specfile] [-m match]
 
-Specfile default: "./tools"
+Specfile default: "./gears"
 
 
 #### Spec Format
 
-- <toolpackagename> [version] # optional comment (for matching)
-- Line starting with $: Forces specific toolmanager until next $ line (default: auto, try all in order: binenv asdf nix micromamba brew)
+- <gearpackagename> [version] # optional comment (for matching)
+- Line starting with $: Forces specific gearmanager until next $ line (default: auto, try all in order: binenv asdf nix micromamba brew)
 - Shell syntax (# vim:ft=sh for syn hilite)
 - Lines starting with # or empty : ignored
 
@@ -73,8 +73,8 @@ unset IFS
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 H="$HOME"
-ALL_TOOLMGRS="binenv asdf nix micromamba brew" # brew nix"
-ALW_TOOLMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
+ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
+ALW_GEARMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
 MM_D_BASE="$H/micromamba"
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
 ARCH="amd64"
@@ -84,7 +84,7 @@ ASDF_REPO="https://github.com/asdf-vm/asdf.git"
 BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 NIX_URL="https://nixos.org/nix/install"
 NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
-FN_ACT_TOOLS="$H/.activate_tools"
+FN_ACT_GEARS="$H/.activate_gears"
 with_nix=false
 with_brew=false
 export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
@@ -106,14 +106,14 @@ function try { silent "$@" || true; }
 function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
 function mkexe { chmod +x "$1"; }
-function tmpfn { local d="/tmp/$USER.tool" && mkdir -p "$d" && echo "$d/$1"; }
+function tmpfn { local d="/tmp/$USER.gear" && mkdir -p "$d" && echo "$d/$1"; }
 function waitfor { while true; do have "$1" && break || sleep 0.1; done; }
 function download {
     silent wget -q "$1" -O "$2" || silent curl -L "$1" >"$2" || die "Download failed: $1 -> $2"
     test -z "${3:-}" && return 0
     "$3" "$2"
 }
-function source_shell_hooks { test -e "$FN_ACT_TOOLS" && . "$FN_ACT_TOOLS" || true; }
+function source_shell_hooks { test -e "$FN_ACT_GEARS" && . "$FN_ACT_GEARS" || true; }
 function set_sh_sep {
     local sep && sep="$1"
     SH_SEP1="# >>> $sep initialize >>>" # mamba style, only one which does it
@@ -121,7 +121,7 @@ function set_sh_sep {
 }
 
 function bootstrap_add_shell_hook {
-    local fnt act name="$1" what="$2" fn="$FN_ACT_TOOLS"
+    local fnt act name="$1" what="$2" fn="$FN_ACT_GEARS"
     touch "$fn"
     nfo "Modifying $fn for $name"
     set_sh_sep "$name"
@@ -140,32 +140,32 @@ silent ls /root/ && have_root=true || have_root=false
 
 # ------------------------------------------------------------------------- CMDS
 
-# -------------------------------------------------- Specific tools installation
+# -------------------------------------------------- Specific gears installation
 
-_INST_TOOLMGRS='' # all installed
-_CUR_TOOLMGR=''   # the one(s) to use (optionally set by install spec)
+_INST_GEARMGRS='' # all installed
+_CUR_GEARMGR=''   # the one(s) to use (optionally set by install spec)
 
-function installed_toolmgrs {
+function installed_gearmgrs {
     local m a=''
-    for m in $ALL_TOOLMGRS; do
+    for m in $ALL_GEARMGRS; do
         silent "$m.bootstrapped" || continue
         a="$a $m"
     done
     echo "$a" | xargs
 }
 
-function single_tool_inst {
-    # requires $_CUR_TOOLMGR to be set (a list)!
-    test -z "$_CUR_TOOLMGR" && die "\$_CUR_TOOLMGR not initialized"
-    local v='' t='' tool="$1" ver="${2:-}"
-    nfo "Tool: $tool. version: $ver. Using $_CUR_TOOLMGR"
-    for t in $_CUR_TOOLMGR; do
-        v="$("$t.have" "$tool")"
-        test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $tool $v [$t]" && return 0; }
-        test -z "$v" || nfo "Wrong version: $t $tool $v"
-        shw "$t.install" "$tool" "$ver" && return 0
+function single_gear_inst {
+    # requires $_CUR_GEARMGR to be set (a list)!
+    test -z "$_CUR_GEARMGR" && die "\$_CUR_GEARMGR not initialized"
+    local v='' t='' gear="$1" ver="${2:-}"
+    nfo "Gear: $gear. version: $ver. Using $_CUR_GEARMGR"
+    for t in $_CUR_GEARMGR; do
+        v="$("$t.have" "$gear")"
+        test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $gear $v [$t]" && return 0; }
+        test -z "$v" || nfo "Wrong version: $t $gear $v"
+        shw "$t.install" "$gear" "$ver" && return 0
     done
-    die "$tool: No installer found"
+    die "$gear: No installer found"
 }
 function binenv.have { binenv versions -f | grep "^$1" | cut -d = -f 2 | xargs; }
 function asdf.have { asdf list "$1" | sed -e 's/*//g' | xargs; }
@@ -179,7 +179,7 @@ function asdf.install {
     local ver="${2:-latest}"
     shw asdf plugin add "$1"
     shw asdf install "$1" "$ver"
-    shw asdf global "$1" "$ver" # writes to ~/.tool-versions
+    shw asdf global "$1" "$ver" # writes to ~/.gear-versions
 }
 function micromamba.install {
     local t="$1" && test -z "${2:-}" || t="$t==$2"
@@ -222,30 +222,30 @@ function brew.query {
     rg -A1 'desc ' | rg -A1 -i "$1"
 }
 
-function tool.query {
+function gear.query {
     local ti
-    _INST_TOOLMGRS="$(installed_toolmgrs)"
+    _INST_GEARMGRS="$(installed_gearmgrs)"
     have rg || silent binenv install rg
-    for ti in $_INST_TOOLMGRS; do title "Query $ti" && "$ti.query" "${1:-}" || true; done
+    for ti in $_INST_GEARMGRS; do title "Query $ti" && "$ti.query" "${1:-}" || true; done
 }
-function tool.list {
+function gear.list {
     local ti
-    _INST_TOOLMGRS="$(installed_toolmgrs)"
-    for ti in $_INST_TOOLMGRS; do title "Installed by: $ti" && "$ti.list" | grep "${1:-}" || true; done
+    _INST_GEARMGRS="$(installed_gearmgrs)"
+    for ti in $_INST_GEARMGRS; do title "Installed by: $ti" && "$ti.list" | grep "${1:-}" || true; done
 }
-function tool.install {
+function gear.install {
     # write a "spec" and sync it:
     local tmp_spec && tmp_spec="$(tmpfn pkgs)"
     rm -f "$tmp_spec"
-    # allow tool i @nix nodejs AND tool i \$nix nodejs
+    # allow gear i @nix nodejs AND gear i \$nix nodejs
     while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
-    tool.sync -f "$tmp_spec"
+    gear.sync -f "$tmp_spec"
 }
 
-function tool.sync {
-    local fn t ti tool='' spec="./tools" match=''
-    _INST_TOOLMGRS="$(installed_toolmgrs)"
-    _CUR_TOOLMGR="$_INST_TOOLMGRS"
+function gear.sync {
+    local fn t ti gear='' spec="./gears" match=''
+    _INST_GEARMGRS="$(installed_gearmgrs)"
+    _CUR_GEARMGR="$_INST_GEARMGRS"
 
     while getopts f:m: opt; do
         case "$opt" in
@@ -255,39 +255,39 @@ function tool.sync {
         esac
     done
     test -e "$spec" || die "Not found spec file $spec"
-    # read the spec, line by line. lines starting with $ set the cur_toolmgr:
+    # read the spec, line by line. lines starting with $ set the cur_gearmgr:
     while read -r p; do
-        tool="$(echo "$p" | grep -v "^#" | xargs)"
-        test -z "$tool" && continue
+        gear="$(echo "$p" | grep -v "^#" | xargs)"
+        test -z "$gear" && continue
         t=false
-        test "$tool" = "\$mm" && tool="\$micromamba"
-        test "$tool" = "\$auto" && _CUR_TOOLMGR="$_INST_TOOLMGRS" && t=true
-        for ti in $_INST_TOOLMGRS; do
-            test "$tool" = "\$${ti}" && {
-                _CUR_TOOLMGR="${tool#\$*}"
+        test "$gear" = "\$mm" && gear="\$micromamba"
+        test "$gear" = "\$auto" && _CUR_GEARMGR="$_INST_GEARMGRS" && t=true
+        for ti in $_INST_GEARMGRS; do
+            test "$gear" = "\$${ti}" && {
+                _CUR_GEARMGR="${gear#\$*}"
                 t=true
                 break
             }
         done
         $t && continue
-        echo "$tool" | grep -q "$match" || { nfo "Skipping $tool" && continue; }
-        tool="${tool%#*}" # cut off comments (which match)
-        title "Try install $tool"
-        eval 'single_tool_inst '$tool''
+        echo "$gear" | grep -q "$match" || { nfo "Skipping $gear" && continue; }
+        gear="${gear%#*}" # cut off comments (which match)
+        title "Try install $gear"
+        eval 'single_gear_inst '$gear''
     done <"$spec"
 }
 
-# -------------------------------------------------- Tool Manager Operations
-function activate_all { for k in $ALL_TOOLMGRS; do try "${k}.activate"; done; }
+# -------------------------------------------------- Gear Manager Operations
+function activate_all { for k in $ALL_GEARMGRS; do try "${k}.activate"; done; }
 
-function tool.status {
-    for t in $ALL_TOOLMGRS; do
+function gear.status {
+    for t in $ALL_GEARMGRS; do
         "$t.bootstrapped" && { good "$t" && "$t.status" || true; } || err "$t"
     done
 }
 
-function tool.bootstrap {
-    local act mgrs="$ALW_TOOLMGRS"
+function gear.bootstrap {
+    local act mgrs="$ALW_GEARMGRS"
     while getopts onb opt; do
         case "$opt" in
             o) mgrs="" ;; # must be before n and b
@@ -298,7 +298,7 @@ function tool.bootstrap {
     done
 
     true Boostrapping <<'    📓'
-    We consider a tool manager "bootstrapped", when the shell hook was evaled.
+    We consider a gear manager "bootstrapped", when the shell hook was evaled.
 
     Eval does:
 
@@ -309,8 +309,8 @@ function tool.bootstrap {
     I.e. the bootstrapping process does add the shell hook to `.<bash | zsh >rc`.
     User can change that and eval in other places but those should be evaled FROM shellrc as well.
     📓
-    test -e "$HOME/.local/bin/tool" || { mkdir -p "$HOME/.local/bin" && cp "$0" "$HOME/.local/bin/tool"; }
-    act="source $FN_ACT_TOOLS"
+    test -e "$HOME/.local/bin/gear" || { mkdir -p "$HOME/.local/bin" && cp "$0" "$HOME/.local/bin/gear"; }
+    act="source $FN_ACT_GEARS"
     grep -q "^$act" <"$HOME/.bashrc" || {
         local fn && fn="$(tmpfn brc)" # maybe no sed
         echo -e "$act\n\n" >"$fn"
@@ -324,17 +324,17 @@ function tool.bootstrap {
     $inst || { good "Already present: $mgrs" && return 0; }
     source_shell_hooks
     for t in $mgrs; do "$t.bootstrapped" || die "Could not bootstrap $t"; done
-    tool.status || true
+    gear.status || true
 }
 
-function tool.ensure_runnable {
+function gear.ensure_runnable {
     test -z "${OS:-}" && die "Only linux or osx. sorry..." || true
 }
-function tool.help {
+function gear.help {
     echo -e "$d_"
     test "${1:-}" = false && return || exit 0
 }
-# ------------------------------------------------------------------------- TOOLS
+# ------------------------------------------------------------------------- GEARS
 function binenv.bootstrapped { have binenv; } # -> PATH seems set.
 function binenv.status { binenv versions -f; }
 function binenv.bootstrap {
@@ -412,12 +412,12 @@ function brew.status { brew list; }
 function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")"; }
 function brew.bootstrap {
     local d="/home/linuxbrew/.linuxbrew"
-    silent touch "$d/tooltest" || { # already owned?
+    silent touch "$d/geartest" || { # already owned?
         test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
         test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
         test -e "$d" || with_git_curl brewinst
     }
-    try rm -f "$d/tooltest"
+    try rm -f "$d/geartest"
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
 
@@ -459,7 +459,7 @@ function usermode {
             chown -R "$user:$user" /home/linuxbrew/.linuxbrew
         }
     }
-    hu="$hu/.local/bin/tool"
+    hu="$hu/.local/bin/gear"
     cp "$0" "$hu"
     chown -R "$user:$user" "$hu"
     su - "$user" -c "eval $hu $* $nb"
@@ -478,7 +478,7 @@ function main {
             -u | --user) user="$2" && shift ;;
             -x | --debug) set -x ;;
             -h | --help) cmd=help && break ;;
-            bs | bootstrap) cmd=bootstrap && break ;;
+            up | bootstrap) cmd=bootstrap && break ;;
             i | install) cmd=install && break ;;
             l | list) cmd=list && break ;;
             q | query) cmd=query && break ;;
@@ -489,11 +489,11 @@ function main {
         esac
         shift
     done
-    test "$cmd" = "help" && tool.help "$@" # exits
+    test "$cmd" = "help" && gear.help "$@" # exits
     shift
     test -z "$user" || usermode "$user" "$cmd" "$@"
-    tool.ensure_runnable && source_shell_hooks
-    "tool.$cmd" "$@"
+    gear.ensure_runnable && source_shell_hooks
+    "gear.$cmd" "$@"
 }
 
 main "$@"

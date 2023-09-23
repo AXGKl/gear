@@ -19,17 +19,14 @@ jobs:
           sudo apt update
           sudo apt-get -y install podman
           podman pull fedora:38
+          podman pull debian:12
+
       - name: Get source
         uses: actions/checkout@v3
-        with:
-          path: 'red_amber'
-      - name: Create container and run tests
-        run: |
-          {
-              echo 'FROM fedora:38'
-              echo '# set TZ to ensure the test using timestamp'
-              echo 'uname -a'
-          } > podmanfile
-          podman build --tag fedora38test -f ./podmanfile
+        
 
+      - name: test
+        run: |
+          tests/test.sh fedora:38
+          tests/test.sh debian:12
 
