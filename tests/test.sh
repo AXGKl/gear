@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
-set -xe
+set -e
+test -e "gear" || exit 1
+here="$(pwd)"
 fs="$1"
-here="$(dirname "$0")"
+d_test="$here/build/$fs"
+test -z "$fs" && exit 1
 
-function into_clean_fs {
-    cd "$here"
-    cd ../
-    rm -rf "$fs"
-    podman run "$fs" echo
+function get_clean_fs {
+    podman run "$fs" echo || exit 1
     img="$(podman ps -a | grep "$fs" | head -n 1 | cut -d ' ' -f1)"
-    mkdir "$fs"
-    cd "$fs"
-    podman export "$img" | tar xf -
-    podman rm "$img"
-    cp ../gear .
+    test -d "$d_test" && sudo rm -rf "$d_test"
+    mkdir -p "$d_test"
+    (
+        cd "$d_test"
+        podman export "$img" | tar xf -
+        podman rm "$img"
+    )
+    cp "gear" "$d_test/"
 }
 
 function main {
-    into_clean_fs
-    sudo chroot . ./gear -u user up
+    get_clean_fs
+    #sudo systemd-nspawn -D "$d_test" /gear -x -y -u user up
+    sudo systemd-nspawn -D "$d_test" /gear -y -u user up
 }
 
 main "$@"

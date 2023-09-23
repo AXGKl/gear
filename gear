@@ -73,6 +73,7 @@ unset IFS
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 H="$HOME"
+GEAR_DEBUG="${GEAR_DEBUG:-false}"
 ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
 ALW_GEARMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
 MM_D_BASE="$H/micromamba"
@@ -101,7 +102,14 @@ function confirm {
     local conf && echo "$* [y/N]? " && read -r conf
     test "$conf" = "y" -o "$conf" = "y" && return 0 || die "Unconfirmed"
 }
-function silent { "$@" 2>/dev/null 1>/dev/null; }
+function silent {
+    $GEAR_DEBUG && {
+        "$@" # do it loud
+        return $?
+    }
+    # do it silently:
+    $GEAR_DEBUG || "$@" 2>/dev/null 1>/dev/null
+}
 function try { silent "$@" || true; }
 function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
@@ -112,6 +120,14 @@ function download {
     silent wget -q "$1" -O "$2" || silent curl -L "$1" >"$2" || die "Download failed: $1 -> $2"
     test -z "${3:-}" && return 0
     "$3" "$2"
+}
+
+function inst_sys { # git wget or curl
+    nfo "Require to have $1 on the system"
+    test "$(whoami)" = "root" || die "Require to be root for this. Sry..."
+    have yum && silent yum install -y "$1"
+    have apt && { silent apt install -y "$1" || silent apt update && silent apt install -y "$1"; }
+    have "$1" || die "could not install $1"
 }
 function source_shell_hooks { test -e "$FN_ACT_GEARS" && . "$FN_ACT_GEARS" || true; }
 function set_sh_sep {
@@ -326,9 +342,11 @@ function gear.bootstrap {
     for t in $mgrs; do "$t.bootstrapped" || die "Could not bootstrap $t"; done
     gear.status || true
 }
-
 function gear.ensure_runnable {
     test -z "${OS:-}" && die "Only linux or osx. sorry..." || true
+    have wget && return
+    have curl && return
+    inst_sys wget
 }
 function gear.help {
     echo -e "$d_"
@@ -421,8 +439,9 @@ function brew.bootstrap {
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
 
-function usermode {
+function gear_for_user_by_root {
     # root installs for a specific user - creating it:
+    # Then we install already here nix and brew, so that sudo is not required later
     local nb='' hu='' user=$1 && shift
     test "$(whoami)" = "$user" && return 0
     test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
@@ -441,6 +460,7 @@ function usermode {
     }
 
     test "$1" = bootstrap && {
+        have wget || have curl || inst_sys wget
         $with_nix && nix.bootstrap
         $with_nix && nb="-n"
         $with_brew && {
@@ -448,12 +468,7 @@ function usermode {
             test -e "/home/linuxbrew/.linuxbrew" || {
                 touch /.dockerenv # then brew will not complain about root
                 download "$BREW_URL" /tmp/bi mkexe
-                have git || {
-                    echo "brew requires git - installing..."
-                    have yum && silent yum install -y git
-                    have apt-get && silent apt-get install -y git
-                }
-                have git || die "could not install git required for homebrew"
+                have git || inst_sys git
                 NONINTERACTIVE=1 CI=1 /tmp/bi
             }
             chown -R "$user:$user" /home/linuxbrew/.linuxbrew
@@ -462,7 +477,7 @@ function usermode {
     hu="$hu/.local/bin/gear"
     cp "$0" "$hu"
     chown -R "$user:$user" "$hu"
-    su - "$user" -c "eval $hu $* $nb"
+    su - "$user" -c "export GEAR_DEBUG=$GEAR_DEBUG && eval $hu $* $nb"
     exit $?
 }
 # -------------------------------------------------- main
@@ -476,7 +491,8 @@ function main {
             -N | --with-nix) with_nix=true ;;
             -B | --with-brew) with_brew=true ;;
             -u | --user) user="$2" && shift ;;
-            -x | --debug) set -x ;;
+            -y | --yes) export interactive=false ;;
+            -x | --debug) set -x && export GEAR_DEBUG=true ;;
             -h | --help) cmd=help && break ;;
             up | bootstrap) cmd=bootstrap && break ;;
             i | install) cmd=install && break ;;
@@ -491,7 +507,7 @@ function main {
     done
     test "$cmd" = "help" && gear.help "$@" # exits
     shift
-    test -z "$user" || usermode "$user" "$cmd" "$@"
+    test -z "$user" || gear_for_user_by_root "$user" "$cmd" "$@"
     gear.ensure_runnable && source_shell_hooks
     "gear.$cmd" "$@"
 }
