@@ -113,7 +113,7 @@ function silent {
 function try { silent "$@" || true; }
 function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
-function mkexe { chmod +x "$1"; }
+function chmod_ { chmod +x "$1"; }
 function tmpfn { local d="/tmp/$USER.gear" && mkdir -p "$d" && echo "$d/$1"; }
 function waitfor { while true; do have "$1" && break || sleep 0.1; done; }
 function download {
@@ -123,11 +123,13 @@ function download {
 }
 
 function inst_sys { # git wget or curl
-    nfo "Require to have $1 on the system"
     test "$(whoami)" = "root" || die "Require to be root for this. Sry..."
-    have yum && silent yum install -y "$1"
-    have apt && { silent apt install -y "$1" || silent apt update && silent apt install -y "$1"; }
-    have "$1" || die "could not install $1"
+    local pkg="$1"
+    test "$pkg" = "su" && pkg=util-linux
+    nfo "Require to have package $pkg on the system"
+    have yum && silent yum install -y "$pkg"
+    have apt && { silent apt install -y "$pkg" || silent apt update && silent apt install -y "$pkg"; }
+    have "$1" || die "could not install package for $1"
 }
 function source_shell_hooks { test -e "$FN_ACT_GEARS" && . "$FN_ACT_GEARS" || true; }
 function set_sh_sep {
@@ -358,7 +360,7 @@ function binenv.status { binenv versions -f; }
 function binenv.bootstrap {
     local fn
     fn="$(tmpfn binenv)"
-    shw download "$BINENV_URL" "$fn" mkexe
+    shw download "$BINENV_URL" "$fn" chmod_
     shw "$fn" update && shw "$fn" install binenv
     bootstrap_add_shell_hook "binenv" 'echo "$PATH" | grep -q binenv || PATH="$HOME/.binenv:$PATH"'
 }
@@ -420,7 +422,7 @@ function nix.bootstrap {
         hash semanage || die "Require semanage on an selinux system"
         url="$NIX_URL_SELINUX"
     }
-    download "$url" "$fn" mkexe
+    download "$url" "$fn" chmod_
     "$fn" --daemon --yes # asks for sudo if not root
 }
 function nix.status { nix doctor; }
@@ -446,6 +448,7 @@ function gear_for_user_by_root {
     test "$(whoami)" = "$user" && return 0
     test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
     hu="/home/$user"
+    have su || inst_sys su
 
     su - "$user" -c 'echo ""' || {
         $interactive && confirm "ok to create user $user"
@@ -467,7 +470,7 @@ function gear_for_user_by_root {
             nb="-b $nb"
             test -e "/home/linuxbrew/.linuxbrew" || {
                 touch /.dockerenv # then brew will not complain about root
-                download "$BREW_URL" /tmp/bi mkexe
+                download "$BREW_URL" /tmp/bi chmod_
                 have git || inst_sys git
                 NONINTERACTIVE=1 CI=1 /tmp/bi
             }

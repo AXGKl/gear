@@ -21,8 +21,8 @@ function get_clean_fs {
 
 function main {
     get_clean_fs
-    #sudo systemd-nspawn -D "$d_test" /gear -x -y -u user up
-    sudo systemd-nspawn -D "$d_test" /gear -y -u user up
+    sudo systemd-nspawn -D "$d_test" /gear -x -y -u user up
+    #sudo systemd-nspawn -D "$d_test" /gear -y -u user up
 }
 
 main "$@"
