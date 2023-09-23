@@ -10,13 +10,14 @@ on:
  
 jobs:
   test:
-    name: fedora
-    runs-on: ubuntu-latest
+    name: baseinst
+    runs-on: ubuntu-22.04
     
     steps:
       - name: Setup Podman
         run: |
-          #sudo apt update
+          systemd-nspawn --version || true
+          sudo apt update
           sudo apt-get -qy install podman systemd-nspawn
           podman pull fedora:38
           podman pull debian:12
