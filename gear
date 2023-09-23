@@ -127,6 +127,7 @@ function inst_sys { # git wget or curl
     test "$(whoami)" = "root" || die "Require to be root for this. Sry..."
     local pkg="$1"
     test "$pkg" = "su" && pkg=util-linux
+    test "$pkg" = "ps" && pkg=procps
     have apt && test "$pkg" = "xz" && pkg="xz-utils"
     nfo "Require to have package $pkg on the system"
     have yum && silent yum install -y "$pkg"
@@ -452,6 +453,7 @@ function gear_for_user_by_root {
     test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
     hu="/home/$user"
     have su || inst_sys su
+    have ps || inst_sys ps # at least brew and conda
 
     su - "$user" -c 'echo ""' || {
         $interactive && confirm "ok to create user $user"
