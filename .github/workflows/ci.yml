@@ -13,11 +13,15 @@ jobs:
     name: baseinst_mac
     runs-on: macos-13
     steps:
-       - name: Get source
-         uses: actions/checkout@v3
-       - name: test
-         run: |
-           tests/osx.sh
+      - name: Get source
+        uses: actions/checkout@v3
+      - name: test
+        run: |
+          export foo=bar
+          echo $foo
+          echo done
+          exit 1
+          ./tests/osx.sh
             
            
 

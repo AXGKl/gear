@@ -130,8 +130,8 @@ function inst_sys { # git wget or curl
     test "$pkg" = "ps" && pkg=procps
     have apt && test "$pkg" = "xz" && pkg="xz-utils"
     nfo "Require to have package $pkg on the system"
-    have yum && silent yum install -y "$pkg"
-    have apt && { silent apt install -y "$pkg" || silent apt update && silent apt install -y "$pkg"; }
+    have yum && silent yum install -qy "$pkg"
+    have apt && { silent apt install -qy "$pkg" || silent apt -q update && silent apt install -qy "$pkg"; }
     have "$1" || die "could not install package for $1"
 }
 function source_shell_hooks { test -e "$FN_ACT_GEARS" && . "$FN_ACT_GEARS" || true; }

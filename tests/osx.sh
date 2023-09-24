@@ -4,23 +4,22 @@ test -e "gear" || exit 1
 here="$(pwd)"
 
 function main {
-    echo "$PATH"
     ./gear up || true
+
+    # we've put it there. change to your liking
     PATH="$HOME/.local/bin:$PATH"
 
-    cd "$HOME"
-    source .activate_gears || true
-    echo "$PATH"
+    # first in your shell act:
+    source "$HOME/.activate_gears"
 
     gear install gdu
-    gdu -n ./hostedtoolcache
+    gdu -n "$HOME./hostedtoolcache"
 
-    gear install nodejs # asdf
+    gear install nodejs 17.1.0 # asdf
     node --version
 
-    cat .condarc | grep auto_update_conda | grep false
     gear install redis-server
-    redis-server --version 
+    redis-server --version
 
 }
 main "$@"
