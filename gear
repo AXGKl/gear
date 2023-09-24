@@ -407,8 +407,11 @@ function micromamba.bootstrap {
     a="$a\nexport MAMBA_ROOT_PREFIX='$HOME/micromamba'"
     a=''$a'\neval "$($MAMBA_EXE shell hook -s bash -r $MAMBA_ROOT_PREFIX)"'
     mkdir -p "$H/micromamba"
+    shw micromamba.build_cache
     bootstrap_add_shell_hook micromamba "$a"
 }
+function micromamba.build_cache { silent micromamba -p "$H/micromamba" install -qy xxx || true; }
+
 function nix.bootstrapped {
     bash -ic 'nix --version'
 }
@@ -426,7 +429,7 @@ function nix.status { nix doctor; }
 
 function brew.bootstrapped { have brew; }
 function brew.status { brew list; }
-function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")" && "$BREW_DIR/bin/brew" install hello; }
+function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")" && shw brew.build_cache; }
 function brew.bootstrap {
     local d="$BREW_DIR"
     silent touch "$d/geartest" || { # already owned?
@@ -437,6 +440,7 @@ function brew.bootstrap {
     try rm -f "$d/geartest"
     bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
 }
+function brew.build_cache { silent "$BREW_DIR/bin/brew" install hello; }
 
 function gear_for_user_by_root {
     # root installs for a specific user - creating it:
