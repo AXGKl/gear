@@ -4,7 +4,7 @@ test -e "gear" || exit 1
 here="$(pwd)"
 
 function main {
-    ./gear up || true
+    ./gear up
 
     # we've put it there. change to your liking
     PATH="$HOME/.local/bin:$PATH"

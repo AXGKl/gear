@@ -91,6 +91,7 @@ with_nix=false
 with_brew=false
 export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
 FNLOG=
+T0=0
 # ------------------------------------------------------------------------- UTILS
 function now { date +%s%N | cut -b1-13; } # millis
 function dt { local t0="${1:-$T0}" && echo -n $(($(now) - t0)); }
@@ -249,11 +250,11 @@ function gear.list {
 }
 function gear.install {
     # write a "spec" and sync it:
-    local tmp_spec && tmp_spec="$(tmpfn pkgs)"
+    local tmp_spec && tmp_spec="$(tmpfn pkgs_to_install)"
     rm -f "$tmp_spec"
     # allow gear i @nix nodejs AND gear i \$nix nodejs
     while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
-    silent cat "$tmp_spec"
+    shw cat "$tmp_spec"
     gear.sync -f "$tmp_spec"
 }
 
