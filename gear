@@ -90,8 +90,11 @@ FN_ACT_GEARS="$H/.activate_gears"
 with_nix=false
 with_brew=false
 export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
+FNLOG=
 # ------------------------------------------------------------------------- UTILS
-function out { echo -e "$*" >&2; }
+function now { date +%s%N | cut -b1-13; } # millis
+function dt { local t0="${1:-$T0}" && echo -n $(($(now) - t0)); }
+function out { printf "\x1b[2;36m%5s\x1b[0m %b\n" "$(dt)" "$*"; }
 function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
 function nfo { out "(ℹ️) $*"; }
 function good { out "🟩 $*"; }
@@ -103,14 +106,7 @@ function confirm {
     local conf && echo "$* [y/N]? " && read -r conf
     test "$conf" = "y" -o "$conf" = "y" && return 0 || die "Unconfirmed"
 }
-function silent {
-    $GEAR_DEBUG && {
-        "$@" # do it loud
-        return $?
-    }
-    # do it silently:
-    $GEAR_DEBUG || "$@" 2>/dev/null 1>/dev/null
-}
+function silent { (set +x && echo -e "\n $(dt) cmd: $*" >>"$FNLOG" && "$@" 2>>"$FNLOG" 1>>"$FNLOG"); }
 function try { silent "$@" || true; }
 function have { silent type "$1"; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
@@ -129,7 +125,7 @@ function inst_sys { # git wget or curl
     test "$pkg" = "su" && pkg=util-linux
     test "$pkg" = "ps" && pkg=procps
     have apt && test "$pkg" = "xz" && pkg="xz-utils"
-    nfo "Require to have package $pkg on the system"
+    nfo "Require cmd $1 -> installing package $pkg systemwide"
     have yum && silent yum install -qy "$pkg"
     have apt && { silent apt install -qy "$pkg" || silent apt -q update && silent apt install -qy "$pkg"; }
     have "$1" || die "could not install package for $1"
@@ -155,9 +151,6 @@ function bootstrap_add_shell_hook {
     grep -A 10000 "$SH_SEP2" <"$fn" | grep -v "$SH_SEP2" >>"$fnt"
     mv "$fnt" "$fn"
 }
-
-[ -t 0 ] && interactive=true || interactive=false
-silent ls /root/ && have_root=true || have_root=false
 
 # ------------------------------------------------------------------------- CMDS
 
@@ -456,7 +449,7 @@ function gear_for_user_by_root {
     have ps || inst_sys ps # at least brew and conda
 
     su - "$user" -c 'echo ""' || {
-        $interactive && confirm "ok to create user $user"
+        $INTERACTIVE && confirm "ok to create user $user"
         useradd -md "$hu" -s /bin/bash "$user" || echo "User exists already"
         mkdir -p "$hu/.ssh"
         test -e "$HOME/.ssh/authorized_keys" && {
@@ -494,6 +487,11 @@ function gear_for_user_by_root {
 }
 # -------------------------------------------------- main
 function main {
+    T0=$(now) && export T0
+    FNLOG="$(tmpfn gearlog)" && export FNLOG && echo '' >"$FNLOG"
+
+    [ -t 0 ] && INTERACTIVE=true || INTERACTIVE=false
+    silent ls /root/ && HAVE_ROOT=true || HAVE_ROOT=false
     title "$0 $*"
     local cmd user=''
     cmd="${1:-help}"
@@ -503,8 +501,8 @@ function main {
             -N | --with-nix) with_nix=true ;;
             -B | --with-brew) with_brew=true ;;
             -u | --user) user="$2" && shift ;;
-            -y | --yes) export interactive=false ;;
-            -x | --debug) set -x && export GEAR_DEBUG=true ;;
+            -y | --yes) export INTERACTIVE=false ;;
+            -x | --debug) set -xv && export GEAR_DEBUG=true ;;
             -h | --help) cmd=help && break ;;
             up | bootstrap) cmd=bootstrap && break ;;
             i | install) cmd=install && break ;;

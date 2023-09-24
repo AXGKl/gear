@@ -15,7 +15,7 @@ function main {
     gear install gdu
     gdu -n "$HOME./hostedtoolcache"
 
-    gear install nodejs 17.1.0 # asdf
+    gear install nodejs 17.1.1 # asdf
     node --version
 
     gear install redis-server

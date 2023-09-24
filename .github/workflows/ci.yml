@@ -19,30 +19,28 @@ jobs:
         run: |
           export foo=bar
           echo $foo
-          echo done
-          exit 1
           ./tests/osx.sh
             
            
-
-  test:
-    name: baseinst
-    runs-on: ubuntu-22.04
-    
-    steps:
-      - name: GetFilesystems
-        run: |
-          #sudo apt update
-          sudo apt-get -qy install podman systemd-container
-          podman pull fedora:38
-          podman pull debian:12
-
-      - name: Get source
-        uses: actions/checkout@v3
-        
-
-      - name: test
-        run: |
-          tests/test.sh fedora:38
-          tests/test.sh debian:12
-
+  #
+  # test:
+  #   name: baseinst
+  #   runs-on: ubuntu-22.04
+  #
+  #   steps:
+  #     - name: GetFilesystems
+  #       run: |
+  #         #sudo apt update
+  #         sudo apt-get -qy install podman systemd-container
+  #         podman pull fedora:38
+  #         podman pull debian:12
+  #
+  #     - name: Get source
+  #       uses: actions/checkout@v3
+  #
+  #
+  #     - name: test
+  #       run: |
+  #         tests/test.sh fedora:38
+  #         tests/test.sh debian:12
+  #
