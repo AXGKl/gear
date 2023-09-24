@@ -13,7 +13,7 @@ function main {
     source "$HOME/.activate_gears"
 
     gear install gdu
-    gdu -n "$HOME/.hostedtoolcache"
+    gdu -n "/tmp"
 
     gear install nodejs 17.1.1 # asdf
     node --version

@@ -9,13 +9,13 @@ on:
       - master
  
 jobs:
-  testmac:
+  test_osx:
     name: baseinst_mac
     runs-on: macos-13
     steps:
       - name: Get source
         uses: actions/checkout@v3
-      - name: test
+      - name: base_inst
         run: |
           ./tests/osx.sh
             
