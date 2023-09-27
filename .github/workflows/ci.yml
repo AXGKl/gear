@@ -32,13 +32,13 @@ jobs:
   fs_matrix: 
     strategy:
       matrix:
-        fs: [fedora:38, ubuntu:22.04, debian:latest]
+        fs: ["fedora:38", "ubuntu:22.04", "debian:latest"]
     runs-on: ubuntu-22.04
     steps:
         - name: Get source
           uses: actions/checkout@v3
         - name: base_inst
-          run: tests/fs.sh "${{ matrix.fs }}" tests/test-basic.sh
+          run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh"
 
      
         
