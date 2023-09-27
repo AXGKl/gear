@@ -149,25 +149,27 @@ function bootstrap_add_shell_hook {
 
 with_root() {
     local r=false && { test "$1" = run && r=true && shift; }
-    $HAVE_ROOT || {
-        have sudo || die "Require sudo"
-        nfo "Req sudo to run $1 - enter your password if asked"
-        sudo -v || die "Sorry"
+    $HAVE_ROOT && {
+        shw silent "$@"
+        return $?
     }
-    $r && sudo "$@" # e.g. for apt
-    $r || "$@"      # comamnd does sudo internally (like nix or brew bootstrap)
+    have sudo || die "Require sudo"
+    nfo "Req sudo to run $1 - enter your password if asked"
+    sudo -v || die "Sorry"
+    $r && shw silent sudo "$@" # e.g. for apt
+    $r || shw silent "$@"      # comamnd does sudo internally (like nix or brew bootstrap)
 }
 # --------------------------------------- ---------------------------------- GEARS
 idxline() { local a="$1✦$2✦$3" && echo "${a//$'\n'/ - }"; } # rm newlines, replace with ' - '
 IDXSEP="📦"
 if true; then # sys:
-    sys_cmd() { have apt && echo apt || { have yum && echo yum || echo ''; }; }
-    sys:bootstrapped() { test ! -z "$(sys_cmd)"; }
+    sys_apt_or_yum() { have apt && echo apt || { have yum && echo yum || echo ''; }; }
+    sys:bootstrapped() { test ! -z "$(sys_apt_or_yum)"; }
     sys:bootstrap() { sys:bootstrapped || die "Only supporting apt and yum"; }
-    sys:build_cache() { shw "$(sys_cmd)" update; }
+    sys:build_cache() { shw "$(sys_apt_or_yum)" update; }
     sys:status() {
-        test -z "$(sys_cmd)" && err "Unsupported system"
-        nfo "$(sys_cmd) based system"
+        test -z "$(sys_apt_or_yum)" && err "Unsupported system"
+        nfo "$(sys_apt_or_yum) based system"
     }
     sys:shellhook() { echo ''; }
     sys_pkg_map() {
@@ -181,8 +183,8 @@ if true; then # sys:
     sys:install() {
         local pkg="$(sys_pkg_map "$1")"
         for i in 1 2; do
-            shw with_root run "$(sys_cmd)" install -yq "$1" && return
-            shw with_root run "$(sys_cmd)" udpate -q
+            with_root run "$(sys_apt_or_yum)" install -yq "$1" && return
+            with_root run "$(sys_apt_or_yum)" update -q
         done
         return 1
     }
@@ -412,6 +414,8 @@ if true; then
     }
 
     gear_ensure() {
+        _INST_GEARMGRS='' # all installed ones
+        _CUR_GEARMGR=''   # the one(s) to use to install a package. This will never be parallel so global
         local chk_have=true && test "$1" = false && { chk_have=false && shift; }
         while [[ $# -gt 0 ]]; do
             shw gear_ensure_single "$1" $chk_have
@@ -487,13 +491,13 @@ if true; then
         test -z "$args" && return
 
         #echo "gm:$_CUR_GEARMGR args:$args cmd:$cmds"
-        if [ -n "$_CUR_GEARMGR" ]; then
-            shw gear_mgr_inst_mult "$_CUR_GEARMGR" $args
+        if [ ! -z "$_CUR_GEARMGR" ]; then
+            shw install_packages "$_CUR_GEARMGR" $args
         else
             local b
             for p in $args; do
                 b=false
-                for m in $_INST_GEARMGRS; do gear_mgr_inst_mult "$m" "$p" && b=true && break; done
+                for m in $_INST_GEARMGRS; do install_packages "$m" "$p" && b=true && break; done
                 $b || die "Could not install $p"
             done
         fi
@@ -501,7 +505,7 @@ if true; then
             have_shw "$c" || nfo "📦$args installed but cmd $c not found - assuming you forgot to mention."
         done
     }
-    gear_mgr_inst_mult() {
+    install_packages() {
         local m="$1"
         shift && local f="${m}:install_multi"
         have "$f" && {
@@ -734,13 +738,11 @@ function main {
         esac
         shift
     done
-    true && {
-        test "$cmd" = "gear_help" && "$cmd" "$@" # exits
-        shift
-        test -z "$user" || gear_inst_for_user_by_root "$user" "$cmd" "$@"
-        gear_ensure_runnable && source_shell_hooks
-        "$cmd" "$@"
-    }
+    test "$cmd" = "gear_help" && "$cmd" "$@" # exits
+    shift
+    test -z "$user" || gear_inst_for_user_by_root "$user" "$cmd" "$@"
+    gear_ensure_runnable && source_shell_hooks
+    "$cmd" "$@"
 }
 
 main "$@"

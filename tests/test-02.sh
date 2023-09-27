@@ -4,7 +4,7 @@ D_HOME="/home/"
 set -eu
 
 function tests {
-    ./gear i nix:firefox brew:gdu
+    ./gear -x i nix:firefox brew:gdu
     source "${HOME}/.gears"
     gdu-go -v
     type firefox

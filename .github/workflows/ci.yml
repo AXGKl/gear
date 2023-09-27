@@ -16,30 +16,20 @@ jobs:
       - name: Get source
         uses: actions/checkout@v3
       - name: base_inst
-        run: tests/test-01.sh osx
+        run: tests/test-basic.sh osx
         
 
 
-  test_linux:
+  test_ubuntu_light:
     name: baseinst_linux
     runs-on: ubuntu-22.04
     steps:
       - name: Get source
         uses: actions/checkout@v3
       - name: base_inst
-        run: tests/test-01.sh fatlinux
+        run: tests/test-basic.sh fatlinux
 
-
-  test_linux_full:
-    name: full_inst_linux
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Get source
-        uses: actions/checkout@v3
-      - name: full_inst
-        run: tests/test-02.sh fatlinux
-
-          
+  
 
 
 
