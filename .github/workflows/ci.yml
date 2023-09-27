@@ -45,8 +45,19 @@ jobs:
           ./gear -h
           ./gear up b a mm
           source "${HOME}/.gears"
-          ./gear e gdu
           gdu -v
+          ./gear e redis-server,lazygit,htop b:rg a:nodejs:node
+          type redis-server
+          redis-server --version
+          type lazygit
+          lazygit --version
+          type htop
+          htop --version
+          type rg
+          rg --version
+          type npm
+          npm --version
+
 
 
             
