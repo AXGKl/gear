@@ -35,6 +35,8 @@ jobs:
         fs: ["fedora:38", "ubuntu:22.04", "debian:latest"]
     runs-on: ubuntu-22.04
     steps:
+        - name: nspawn
+          run: sudo "apt-get" "-qy" "install" "systemd-container"
         - name: Get source
           uses: actions/checkout@v3
         - name: base_inst
