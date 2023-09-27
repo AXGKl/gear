@@ -425,22 +425,22 @@ if true; then
         _INST_GEARMGRS="$(echo "$a" | xargs)"
     }
 
+    gear_install() { gear_ensure --no-take-any "$@"; }
+
     gear_ensure() {
         _INST_GEARMGRS='' # all installed ones
         _CUR_GEARMGR=''   # the one(s) to use to install a package. This will never be parallel so global
-        local chk_have=true && test "$1" = false && { chk_have=false && shift; }
+        local opts='--take-any' && test "$1" = '--no-take-any' && { opts="$1" && shift; }
         while [[ $# -gt 0 ]]; do
-            shw gear_ensure_single "$1" $chk_have
+            shw gear_ensure_single "$1" $opts
             shift
         done
     }
 
-    gear_install() { gear_ensure false "$@"; }
-
     gear_ensure_single() {
         true EnsuringPackages <<'        📓'
             $1: packages spec, containing infos about gear manager to use, package, versions and commands
-            ${2:-false}: If true, then check if cmd is found anywhere in current $PATH already - and if so, succeed (skip that install)
+            $2: If = "--take-any", then check if cmd is found *anywhere* in current $PATH already - and if so, succeed (skip that install)
 
             Package spec examples:
             - foo (or :foo)
@@ -463,11 +463,12 @@ if true; then
                 FORBIDDEN (supply more managers). Use gear_ensure for such things
                 => any manager has to be first part of the spec
         📓
-        local cmd chk_have="${2:-false}"
+        local cmd take_any=false
+        test "$2" = '--take-any' && take_any=true
+        test "$2" = '--no-take-any' && take_any=false
         test -z "$1" && die "Require spec"
-        test "$chk_have" = true -o "$chk_have" = false || die "Wrong params in ensure (got $*)"
         # quick check for common use:
-        spec="$1" && $chk_have && have_shw "$1" && return
+        spec="$1" && $take_any && have_shw "$1" && return
         local gm specs
         IFS=: read -r gm specs <<<"$spec"
         _CUR_GEARMGR=
@@ -495,7 +496,7 @@ if true; then
             IFS=':' read -r pkg cmd <<<"$spec"
             IFS='=' read -r pkg ver <<<"${pkg//==/=}"
             test -z "$cmd" && cmd="$pkg"
-            $chk_have && have_shw "$cmd" && continue
+            $take_any && have_shw "$cmd" && continue
             cmds="$cmds $cmd"
             args="$args $pkg=$ver"
         done
@@ -670,7 +671,7 @@ if true; then
         test -z "${OS:-}" && die "Only Linux or OSX. Sorry..."
         have wget && return
         have curl && return
-        gear_ensure "sys:wget"
+        gear_ensure "wget"
     }
 
     gear_help() {
@@ -699,9 +700,9 @@ if true; then
         }
 
         test "$1" = bootstrap && {
-            have wget || have curl || gear_ensure sys:wget
+            have wget || have curl || gear_ensure wget
             $with_nix && {
-                gear_ensure sys:xz
+                gear_ensure xz
                 nix:bootstrap
             }
             $with_brew && {
@@ -747,7 +748,7 @@ function main {
             R | run-gear-cmd) cmd=$2 && shift && break ;;
             S | sync) cmd=gear_sync && break ;;
             2readme) "$0" -h 2>/dev/null >README.md && exit ;;
-            *) die "$1 not supported";;
+            *) die "$1 not supported" ;;
         esac
         shift
     done
