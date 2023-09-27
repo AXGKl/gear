@@ -3,6 +3,7 @@ echo "In $*"
 D_HOME="/home/"
 test $(whoami) = 'root' && D_HOME='/root/'
 set -eu
+interactive=false
 pdb() {
     # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
     local parent_lineno="$1"
@@ -10,7 +11,8 @@ pdb() {
     test "$code" = '0' && exit 0
     local commands="$3"
     echo "error exit status $code, at file $0 on or near line $parent_lineno: $commands"
-    [ -z "${PS1:-}" ] && exit "$code" || /bin/bash # non interctive -> bye
+    $interactive && /bin/bash
+    exit "$code"
 }
 
 trap 'pdb "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
@@ -43,6 +45,10 @@ function main:linux {
 }
 
 main() {
+    test "$1" = "-i" && {
+        interactive=true
+        shift
+    }
     local testset="${1:-linux}"
     "main:$testset"
 }

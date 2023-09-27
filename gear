@@ -262,7 +262,7 @@ if true; then # a:
 fi
 if true; then
     MM_D_BASE="$H/micromamba"
-    micromamba:build_cache() { silent micromamba -p "$H/micromamba" install -qy xxx || true; }
+    micromamba:build_cache() { silent micromamba -p "$H/micromamba" install -qy non_existent || true; }
     micromamba:bootstrapped() {
         have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
     }
@@ -297,7 +297,7 @@ if true; then
             test -z "$ver" || args="$args==$ver"
             shift
         done
-        shw micromamba install -q -y $args
+        shw micromamba install --offline -q -y $args
     }
     micromamba:list() { micromamba list; }
     micromamba:query() { rg "$1" | grep name | cut -d : -f 3 | uniq; }
@@ -451,7 +451,7 @@ if true; then
                 FORBIDDEN (supply more managers). Use gear_ensure for such things
                 => any manager has to be first part of the spec
         📓
-        local chk_have="${2:-false}"
+        local cmd chk_have="${2:-false}"
         test -z "$1" && die "Require spec"
         test "$chk_have" = true -o "$chk_have" = false || die "Wrong params in ensure (got $*)"
         # quick check for common use:
