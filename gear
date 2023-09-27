@@ -72,12 +72,13 @@ Specfile default: "./gears"
 set -eu
 
 ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
-declare -A GM_ALIASES
-GM_ALIASES[b]=binenv
-GM_ALIASES[a]=asdf
-GM_ALIASES[mm]=micromamba
-GM_ALIASES[n]=nix
-GM_ALIASES[brew]=brew
+GM_ALIASES='
+b:binenv
+a:asdf
+mm:micromamba
+n:nix
+brew:brew
+' # declare -A not supported on older bash (e.g. osx)
 
 unset IFS
 export PS4='$0.$FUNCNAME.$LINENO+ '
@@ -363,7 +364,11 @@ if true; then
     GEAR_DEBUG="${GEAR_DEBUG:-false}"
     GEAR_CFG_DIR="$H/.config/gear"
     FN_ACT_GEARS="$H/.gears"
-    function gearmgr_alias { echo "${GM_ALIASES[$1]:-$1}"; }
+    function gearmgr_alias {
+        local r && r="$(grep "^$1:" <<<"$GM_ALIASES" | cut -d : -f 2)"
+        test -z "$r" && echo "$r" || echo "$1"
+    }
+
     function set_installed_gearmgrs {
         local m a=''
         for m in $ALL_GEARMGRS; do
