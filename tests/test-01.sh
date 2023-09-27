@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 D_HOME="/home/"
-set -x
+set -eu
 
 function tests {
     ./gear -h
