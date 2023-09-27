@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
         - name: nspawn
-          run: sudo "apt-get" "-qy" "install" "systemd-container"
+          run: sudo "apt" "install" "-qy" "systemd-container"
         - name: Get source
           uses: actions/checkout@v3
         - name: base_inst

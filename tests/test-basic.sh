@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
-
+echo "In $*"
 D_HOME="/home/"
+test $(whoami) = 'root' && D_HOME='/root/'
 set -eu
+pdb() {
+    # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
+    local parent_lineno="$1"
+    local code="$2"
+    test "$code" = '0' && exit 0
+    local commands="$3"
+    echo "error exit status $code, at file $0 on or near line $parent_lineno: $commands"
+    [ -z "$PS1" ] && exit "$code" || /bin/bash # non interctive -> bye
+}
+
+trap 'pdb "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
 
 function tests {
     ./gear -h
