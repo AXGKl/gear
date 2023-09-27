@@ -167,8 +167,12 @@ if true; then # b:
     BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
     BINENV_CFG="$H/.config/binenv/distributions.yaml"
     binenv:build_idx() {
+        for i in 1 2 3; do
+            test -e "$BINENV_CFG" && break
+            sleep 1
+        done
         test -e "$BINENV_CFG" || die "Not present: $BINENV_CFG - reinstall binenv"
-        silent gear_ensure b:yq mm:python
+        shw gear_ensure b:yq mm:python
         s='if 1:
         import os, json; d = json.loads(os.popen("""yq -o json ".sources" "'$BINENV_CFG'" """).read())
         for k, v in d.items():
@@ -195,7 +199,7 @@ fi
 if true; then # a:
     ASDF_REPO="https://github.com/asdf-vm/asdf.git"
     asdf:build_cache() {
-        silent gear_ensure mm:python
+        shw gear_ensure mm:python
         s='if 1:
         import os; s = os.popen("asdf plugin list all 2>/dev/null").read()
         s =s.strip().splitlines()
@@ -284,7 +288,7 @@ if true; then
     nix:bootstrapped() { shw silent nix --version; }
     nix:bootstrap() {
         nix:bootstrapped && return 0
-        shw silent gear_ensure mm:xz
+        shw gear_ensure mm:xz
         local url fn && url="$NIX_URL" && fn="$(tmpfn nix_installer)"
         test "$(getenforce 2>/dev/null)" = "Enforcing" && {
             hash semanage || die "Require semanage on an selinux system"
@@ -332,7 +336,7 @@ if true; then
             test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
             test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
             test -e "$d" || {
-                shw silent gear_ensure mm:git,curl
+                shw gear_ensure mm:git,curl
                 silent touch /.dockerenv || true # then it allows as root
                 local fn && fn="$(tmpfn brew_installer)"
                 download "$BREW_URL" "$fn" chmod_
