@@ -91,9 +91,8 @@ case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
 with_nix=false
 with_brew=false
 FNLOG=
-T0=0
 # ------------------------------------------------------------------------- UTILS
-function now { date +%s%N | cut -b1-13; } # millis
+function now { date +%s%N | cut -b1-13; } && T0=$(now) && export T0 # millis
 function dt { echo -n $(($(now) - T0)); }
 function out { printf "\x1b[2;36m%5s\x1b[0m %b\n" "$(dt)" "$*" >&2; }
 function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
@@ -366,7 +365,7 @@ if true; then
     FN_ACT_GEARS="$H/.gears"
     function gearmgr_alias {
         local r && r="$(grep "^$1:" <<<"$GM_ALIASES" | cut -d : -f 2)"
-        test -z "$r" && echo "$r" || echo "$1"
+        test -z "$r" && echo "$1" || echo "$r"
     }
 
     function set_installed_gearmgrs {
@@ -674,7 +673,6 @@ fi
 
 # -------------------------------------------------- main
 function main {
-    T0=$(now) && export T0
     FNLOG="$(tmpfn gearlog)" && export FNLOG && echo '' >"$FNLOG"
 
     [ -t 0 ] && INTERACTIVE=true || INTERACTIVE=false
