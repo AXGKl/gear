@@ -310,19 +310,22 @@ if true; then
 
     nix:build_cache() { nix-channel --add "$NIX_CH_URL" nixpkgs && nix-channel --update nixpkgs; }
     nix:bootstrapped() { shw silent nix --version; }
-    nix:bootstrap() {
-        nix:bootstrapped && return 0
-        shw gear_ensure mm:xz
+    nix_install() {
         local url fn && url="$NIX_URL" && fn="$(tmpfn nix_installer)"
         test "$(getenforce 2>/dev/null)" = "Enforcing" && {
             hash semanage || die "Require semanage on an selinux system"
             url="$NIX_URL_SELINUX"
         }
         download "$url" "$fn" chmod_
-        $HAVE_ROOT && shw silent "$fn" --daemon --yes --no-channel-add || true
-        $HAVE_ROOT || shw "$fn" --daemon --yes --no-channel-add || true # asks for sudo if not root
+        shw silent "$fn" --daemon --yes --no-channel-add || true
         test -e "$NIX_FN"
     }
+    nix:bootstrap() {
+        nix:bootstrapped && return 0
+        shw gear_ensure mm:xz
+        with_root nix_install
+    }
+
     nix:status() { nix doctor; }
     nix:have() { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
     nix:install() {
