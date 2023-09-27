@@ -178,13 +178,14 @@ if true; then # b:
             print("'$IDXSEP'".join((k, d, v.get("url", ""))))'
         python -c "$s" >"$GEAR_CFG_DIR/idx.binenv"
     }
-    binenv:build_cache() { binenv update && binenv:build_idx; }
+    binenv:build_cache() { binenv -v update && binenv:build_idx; }
     binenv:bootstrapped() { have binenv; } # -> PATH seems set.
     binenv:status() { binenv versions -f; }
     binenv:shellhook() { echo 'echo "$PATH" | grep -q binenv || PATH="$HOME/.binenv:$PATH"'; }
     binenv:bootstrap() {
         local fn="$(tmpfn binenv)"
         test -s "$fn" || shw download "$BINENV_URL" "$fn" chmod_
+        mkdir -p "$H/.config/binenv"
         shw "$fn" update && shw "$fn" install binenv
     }
     binenv:activate() { add_path "$H/.binenv" && have binenv; }
