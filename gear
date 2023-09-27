@@ -167,10 +167,6 @@ if true; then # b:
     BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
     BINENV_CFG="$H/.config/binenv/distributions.yaml"
     binenv:build_idx() {
-        for i in 1 2 3; do
-            test -e "$BINENV_CFG" && break
-            sleep 1
-        done
         test -e "$BINENV_CFG" || die "Not present: $BINENV_CFG - reinstall binenv"
         shw gear_ensure b:yq mm:python
         s='if 1:
@@ -180,7 +176,7 @@ if true; then # b:
             print("'$IDXSEP'".join((k, d, v.get("url", ""))))'
         python -c "$s" >"$GEAR_CFG_DIR/idx.binenv"
     }
-    binenv:build_cache() { binenv:build_idx; }
+    binenv:build_cache() { binenv update && binenv:build_idx; }
     binenv:bootstrapped() { have binenv; } # -> PATH seems set.
     binenv:status() { binenv versions -f; }
     binenv:shellhook() { echo 'echo "$PATH" | grep -q binenv || PATH="$HOME/.binenv:$PATH"'; }
