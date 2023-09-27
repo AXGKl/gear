@@ -19,7 +19,7 @@ jobs:
         run: |
           ./gear -h
           ./gear up b a mm
-          source "${HOME}/.gears
+          source "${HOME}/.gears"
           ./gear e gdu
           gdu -v
 
