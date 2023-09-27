@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-d_='# Meta Gear Manager
+
+DOC='# Meta Gear Manager
 
 Manages package managers which work in user mode.
 
@@ -69,53 +70,54 @@ Specfile default: "./gears"
 '
 
 set -eu
+
+ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
+declare -A GM_ALIASES
+GM_ALIASES[b]=binenv
+GM_ALIASES[a]=asdf
+GM_ALIASES[mm]=micromamba
+GM_ALIASES[n]=nix
+GM_ALIASES[brew]=brew
+
 unset IFS
+export PS4='$0.$FUNCNAME.$LINENO+ '
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 H="$HOME"
-GEAR_DEBUG="${GEAR_DEBUG:-false}"
-ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
-ALW_GEARMGRS="binenv micromamba asdf"          # in inst order. asdf req git and curl (from micromamba)
-MM_D_BASE="$H/micromamba"
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
 ARCH="amd64"
 case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
-BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
-ASDF_REPO="https://github.com/asdf-vm/asdf.git"
-BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-BREW_DIR="/home/linuxbrew/.linuxbrew" # only here it's fast (bins work). this is not conda...
-NIX_URL="https://nixos.org/nix/install"
-NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
-FN_ACT_GEARS="$H/.activate_gears"
 with_nix=false
 with_brew=false
-export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
 FNLOG=
 T0=0
 # ------------------------------------------------------------------------- UTILS
 function now { date +%s%N | cut -b1-13; } # millis
-function dt { local t0="${1:-$T0}" && echo -n $(($(now) - t0)); }
-function out { printf "\x1b[2;36m%5s\x1b[0m %b\n" "$(dt)" "$*"; }
+function dt { echo -n $(($(now) - T0)); }
+function out { printf "\x1b[2;36m%5s\x1b[0m %b\n" "$(dt)" "$*" >&2; }
 function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
 function nfo { out "(ℹ️) $*"; }
 function good { out "🟩 $*"; }
 function err { out "🟥 $*"; }
 function die { set +x && err "$*" && exit 1; }
 function shw { out "⚙️ $*" && "$@"; }
-function shtit { title "$@" 33 && "$@"; }
+function shtit { title "$*" 33 && "$@"; }
 function confirm {
     local conf && echo "$* [y/N]? " && read -r conf
     test "$conf" = "y" -o "$conf" = "y" && return 0 || die "Unconfirmed"
 }
-function silent { (set +x && echo -e "\n $(dt) cmd: $*" >>"$FNLOG" && "$@" 2>>"$FNLOG" 1>>"$FNLOG"); }
+function silent { out "cmd: $*" >>"$FNLOG" 2>&1 && "$@" 2>>"$FNLOG" 1>>"$FNLOG"; }
 function try { silent "$@" || true; }
-function have { silent type "$1"; }
+function have { silent hash "$1"; }
+function have_shw { have "$1" && { nfo "Have $1: $(type "$1" 2>/dev/null | head -n 1)" && return 0; } || return 1; }
 function add_path { echo "$PATH" | grep -q "$1:" || export PATH="$1:$PATH"; }
 function chmod_ { chmod +x "$1"; }
 function tmpfn { local d="/tmp/$USER.gear" && mkdir -p "$d" && echo "$d/$1"; }
 function waitfor { while true; do have "$1" && break || sleep 0.1; done; }
 function download {
-    silent wget -q "$1" -O "$2" || silent curl -L "$1" >"$2" || die "Download failed: $1 -> $2"
+    /bin/rm -f "$2"
+    silent wget -q "$1" -O "$2" || silent curl -L "$1" --output "$2" || true
+    test -s "$2" || die "Download failed: $1 -> $2"
     test -z "${3:-}" && return 0
     "$3" "$2"
 }
@@ -139,357 +141,532 @@ function set_sh_sep {
 }
 
 function bootstrap_add_shell_hook {
-    local fnt act name="$1" what="$2" fn="$FN_ACT_GEARS"
+    local fnt act name="$1" what fn="$FN_ACT_GEARS"
+    what="$(${name}:shellhook)"
+    test -z "$what" && return # nix
     touch "$fn"
     nfo "Modifying $fn for $name"
     set_sh_sep "$name"
-    act="$SH_SEP1\n$what\n$SH_SEP2\n"
+    act="$SH_SEP1\n$what\n$SH_SEP2"
 
     grep -q "$SH_SEP1" <"$fn" || { echo -e "$act" >>"$fn" && return 0; } # had no hook yet
     fnt="$(tmpfn shhook)"
-    grep -B 10000 "$SH_SEP1" <"$fn" | grep -v "$SH_SEP1" >"$fnt"
+    grep -B 10000 "$SH_SEP1" <"$fn" | grep -v "$SH_SEP1" >"$fnt" || true
     echo -e "$act" >>"$fnt"
-    grep -A 10000 "$SH_SEP2" <"$fn" | grep -v "$SH_SEP2" >>"$fnt"
+    grep -A 10000 "$SH_SEP2" <"$fn" | grep -v "$SH_SEP2" >>"$fnt" || true
     mv "$fnt" "$fn"
 }
 
-# ------------------------------------------------------------------------- CMDS
-
-# -------------------------------------------------- Specific gears installation
-
-_INST_GEARMGRS='' # all installed
-_CUR_GEARMGR=''   # the one(s) to use (optionally set by install spec)
-
-function set_installed_gearmgrs {
-    local m a=''
-    for m in $ALL_GEARMGRS; do
-        silent "$m.bootstrapped" || continue
-        a="$a $m"
-    done
-    _INST_GEARMGRS="$(echo "$a" | xargs)"
-}
-
-function single_gear_inst {
-    # requires $_CUR_GEARMGR to be set (a list)!
-    test -z "$_CUR_GEARMGR" && die "\$_CUR_GEARMGR not initialized"
-    local v='' t='' gear="$1" ver="${2:-}"
-    nfo "Gear: $gear. version: $ver. Trying $_CUR_GEARMGR"
-    for t in $_CUR_GEARMGR; do
-        v="$("$t.have" "$gear")"
-        test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $gear $v [$t]" && return 0; }
-        test -z "$v" || nfo "Wrong version: $t $gear $v"
-        shw "$t.install" "$gear" "$ver" && return 0 || true
-    done
-    die "$gear: No installer found"
-}
-function binenv.have { binenv versions -f | grep "^$1" | cut -d = -f 2 | xargs; }
-function asdf.have { asdf list "$1" | sed -e 's/*//g' | xargs; }
-function micromamba.have { micromamba list -q --json "$1" | grep version | cut -d : -f 2 | xargs; }
-function nix.have { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
-function brew.have { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
-
-function binenv.install { binenv install "$1" "${2:-}"; }
-
-function asdf.install {
-    local ver="${2:-latest}"
-    (shw asdf plugin add "$1") || return 1
-    shw asdf install "$1" "$ver"
-    shw asdf global "$1" "$ver" # writes to ~/.gear-versions
-}
-function micromamba.install {
-    local t="$1" && test -z "${2:-}" || t="$t==$2"
-    shw micromamba install -q -y "$t"
-}
-function nix.install {
-    # nix-env -iA nixpkgs.python3Packages.zodb => installs lib
-    # OR from https://lazamar.co.uk/nix-versions/?channel=nixos-unstable&package=nodejs:
-    # nix-env -iA nodejs_20 -b -f https://github.com/NixOS/nixpkgs/archive/976fa3369d722e76f37c77493d99829540d43845.tar.gz
-    local is_tar=false ver="${2:-}"
-    echo "$ver" | grep -q '.tar' && is_tar=true
-    test -z "$ver" && {
-        shw nix-env --prebuilt-only -iA "nixpkgs.$1"
-        return $?
+# --------------------------------------- ---------------------------------- GEARS
+idxline() { local a="$1✦$2✦$3" && echo "${a//$'\n'/ - }"; } # rm newlines, replace with ' - '
+IDXSEP="📦"
+if true; then # b:
+    BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
+    BINENV_CFG="$H/.config/binenv/distributions.yaml"
+    binenv:build_idx() {
+        test -e "$BINENV_CFG" || die "Not present: $BINENV_CFG - reinstall binenv"
+        silent gear_ensure b:yq mm:python
+        s='if 1:
+        import os, json; d = json.loads(os.popen("""yq -o json ".sources" "'$BINENV_CFG'" """).read())
+        for k, v in d.items():
+            d = v.get("description", "").replace("\n", " - ")
+            print("'$IDXSEP'".join((k, d, v.get("url", ""))))'
+        python -c "$s" >"$GEAR_CFG_DIR/idx.binenv"
     }
-    $is_tar && {
-        shw nix-env --prebuilt-only -iA "$1" -f "https://github.com/NixOS/nixpkgs/archive/$2"
-        return $?
+    binenv:build_cache() { binenv:build_idx; }
+    binenv:bootstrapped() { have binenv; } # -> PATH seems set.
+    binenv:status() { binenv versions -f; }
+    binenv:shellhook() { echo 'echo "$PATH" | grep -q binenv || PATH="$HOME/.binenv:$PATH"'; }
+    binenv:bootstrap() {
+        local fn="$(tmpfn binenv)"
+        test -s "$fn" || shw download "$BINENV_URL" "$fn" chmod_
+        shw "$fn" update && shw "$fn" install binenv
     }
-    return 1
-}
-function brew.install {
-    local t="$1" && test -z "${2:-}" || t="$t@$2"
-    brew install "$t"
-}
-function binenv.list { binenv versions -f; }
-function asdf.list { asdf list; }
-function micromamba.list { micromamba list; }
-function nix.list { nix-env --query; }
-function brew.list { brew list --versions; }
+    binenv:activate() { add_path "$H/.binenv" && have binenv; }
+    binenv:have() { binenv versions -f | grep "^$1" | cut -d = -f 2 | xargs; }
+    binenv:install() { shw binenv install "$pkg" "$ver"; }
 
-function binenv.query { binenv search "$1"; }
-function asdf.query { ls "$HOME/.asdf/repository/plugins" | grep "${1:-}"; }
-function micromamba.query { rg "$1" | grep name | cut -d : -f 3 | uniq; }
-function nix.query { cd "/nix/var/nix/profiles/per-user/root/channels/nixpkgs/pkgs" && rg "$1"; }
-function brew.query {
-    cd /home/linuxbrew/.linuxbrew
-    test -e "./homebrew-core" || git clone --depth=1 https://github.com/Homebrew/homebrew-core
-    cd homebrew-core
-    rg -A1 'desc ' | rg -A1 -i "$1"
-}
+    binenv:list() { binenv versions -f; }
+    binenv:query() { binenv search "$1"; }
+fi
+if true; then # a:
+    ASDF_REPO="https://github.com/asdf-vm/asdf.git"
+    asdf:build_cache() {
+        silent gear_ensure mm:python
+        s='if 1:
+        import os; s = os.popen("asdf plugin list all 2>/dev/null").read()
+        s =s.strip().splitlines()
+        while s:
+            l = s.pop(0)
+            try: k, u = l.split()
+            except Exception as ex:  continue
+            print("'$IDXSEP'".join((k, "", u)))'
+        python -c "$s" >"$GEAR_CFG_DIR/idx.asdf"
+    }
 
-function gear.query {
-    local ti
-    set_installed_gearmgrs
-    have rg || silent binenv install rg
-    for ti in $_INST_GEARMGRS; do title "Query $ti" && "$ti.query" "${1:-}" || true; done
-}
-function gear.list {
-    local ti
-    set_installed_gearmgrs
-    for ti in $_INST_GEARMGRS; do title "Installed by: $ti" && "$ti.list" | grep "${1:-}" || true; done
-}
-function gear.install {
-    # write a "spec" and sync it:
-    local tmp_spec && tmp_spec="$(tmpfn pkgs_to_install)"
-    rm -f "$tmp_spec"
-    # allow gear i @nix nodejs AND gear i \$nix nodejs
-    while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
-    shw cat "$tmp_spec"
-    gear.sync -f "$tmp_spec"
-}
+    asdf:get_() { export ASDF_REPO && shw silent git clone "$ASDF_REPO" "$H/.asdf" --branch v0.12.0; }
+    asdf:bootstrapped() { have asdf; }
+    asdf:status() { asdf plugin list; }
+    asdf:shellhook() { echo 'source "$HOME/.asdf/asdf.sh"'; }
+    asdf:bootstrap() {
+        test -e "$H/.asdf" && return
+        have git || gear_ensure mm:git,curl
+        asdf:get_
+    }
+    asdf:activate() { silent . "$H/.asdf/asdf.sh"; }
+    asdf:have() { asdf list "$1" | sed -e 's/*//g' | xargs; }
+    asdf:install() {
+        local rc
+        local ver="${2:-latest}"
+        (shw asdf plugin add "$1")
+        rc="$?"
+        test $rc = 0 || test $rc = 2 || return 1 # 2 when already added -> ok then
+        shw asdf install "$1" "$ver"
+        shw asdf global "$1" "$ver" # writes to ~/.gear-versions
+    }
+    asdf:list() { asdf list; }
+    asdf:query() { ls "$HOME/.asdf/repository/plugins" | grep "${1:-}"; }
+fi
+if true; then
+    MM_D_BASE="$H/micromamba"
+    micromamba:build_cache() { silent micromamba -p "$H/micromamba" install -qy xxx || true; }
+    micromamba:bootstrapped() {
+        have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
+    }
+    micromamba:status() { micromamba info | grep 'base environment'; }
+    micromamba:bootstrap() {
+        export CONDA_FORGE_YES=yes
+        export INIT_YES=no
+        local fn
+        fn="$(tmpfn mamba_installer)"
+        test -s "$fn" || shw download "https://micro.mamba.pm/install.sh" "$fn"
+        echo '' | "${SHELL}" <(cat "$fn") # install
 
-function gear.sync {
-    local fn t ti gear='' spec="./gears" match=''
-    set_installed_gearmgrs
-    _CUR_GEARMGR="$_INST_GEARMGRS"
-
-    while getopts f:m: opt; do
-        case "$opt" in
-            f) spec="$OPTARG" ;;
-            m) match="$OPTARG" ;;
-            ?) die "not supported: $opt" ;;
-        esac
-    done
-    test -e "$spec" || die "Not found spec file $spec"
-    # read the spec, line by line. lines starting with $ set the cur_gearmgr:
-    while read -r p; do
-        gear="$(echo "$p" | grep -v "^#" | xargs)"
-        test -z "$gear" && continue
-        t=false
-        test "$gear" = "\$mm" && gear="\$micromamba"
-        test "$gear" = "\$auto" && _CUR_GEARMGR="$_INST_GEARMGRS" && t=true
-        for ti in $_INST_GEARMGRS; do
-            test "$gear" = "\$${ti}" && {
-                _CUR_GEARMGR="${gear#\$*}"
-                t=true
-                break
-            }
+        fn="$H/.condarc"
+        _set_condarc() { grep -q "^$2:" <"$1" || echo -e "$3\n" >>"$1"; }
+        _set_condarc "$fn" "auto_activate_base" 'auto_activate_base: true'
+        _set_condarc "$fn" "auto_update_conda" 'auto_update_conda: false'
+        _set_condarc "$fn" 'pkgs_dirs' "pkgs_dirs:\n  - \${HOME}/micromamba/pkgs"
+        mkdir -p "$H/micromamba"
+    }
+    micromamba:shellhook() {
+        local a="export MAMBA_EXE='$HOME/.local/bin/micromamba'"
+        a="$a\nexport MAMBA_ROOT_PREFIX='$HOME/micromamba'"
+        a=''$a'\neval "$($MAMBA_EXE shell hook -s bash -r $MAMBA_ROOT_PREFIX)"'
+        echo "$a"
+    }
+    micromamba:have() { micromamba list -q --json "$1" | grep version | cut -d : -f 2 | xargs; }
+    micromamba:install_multi() {
+        local args=''
+        while [[ $# -gt 0 ]]; do
+            IFS='=' read -r pkg ver <<<"$1"
+            args="$args $pkg"
+            test -z "$ver" || args="$args==$ver"
+            shift
         done
-        $t && continue
-        echo "$gear" | grep -q "$match" || { nfo "Skipping $gear" && continue; }
-        gear="${gear%#*}" # cut off comments (which match)
-        title "Try install $gear"
-        eval 'single_gear_inst '$gear''
-    done <"$spec"
-}
-
-# -------------------------------------------------- Gear Manager Operations
-function activate_all { for k in $ALL_GEARMGRS; do try "${k}.activate"; done; }
-
-function gear.status {
-    for t in $ALL_GEARMGRS; do
-        "$t.bootstrapped" && { good "$t" && "$t.status" || true; } || err "$t"
-    done
-}
-
-function gear.bootstrap {
-    local act mgrs="$ALW_GEARMGRS"
-    while getopts onb opt; do
-        case "$opt" in
-            o) mgrs="" ;; # must be before n and b
-            n) mgrs="$mgrs nix" ;;
-            b) mgrs="$mgrs brew" ;;
-            ?) die "not supported: $opt" ;;
-        esac
-    done
-
-    true Boostrapping <<'    📓'
-    We consider a gear manager "bootstrapped", when the shell hook was evaled.
-
-    Eval does:
-
-    - for binenv: path added
-    - for asdf: asdf.sh sourced
-    - for mm: micromamba avail as FUNCTION (not necessarily yet activated)
-
-    I.e. the bootstrapping process does add the shell hook to `.<bash | zsh >rc`.
-    User can change that and eval in other places but those should be evaled FROM shellrc as well.
-    📓
-    test -e "$HOME/.local/bin/gear" || { mkdir -p "$HOME/.local/bin" && cp "$0" "$HOME/.local/bin/gear"; }
-    act="source $FN_ACT_GEARS"
-    grep -q "^$act" <"$HOME/.bashrc" || {
-        local fn && fn="$(tmpfn brc)" # maybe no sed
-        echo -e "$act\n\n" >"$fn"
-        cat "$H/.bashrc" >>"$fn"
-        mv "$fn" "$H/.bashrc"
+        shw micromamba install -q -y $args
     }
-    local inst=false
-    for t in $mgrs; do
-        "$t.bootstrapped" && nfo "Have $t" || { inst=true && shtit "$t.bootstrap"; }
-    done
-    $inst || { good "Already present: $mgrs" && return 0; }
-    source_shell_hooks
-    for t in $mgrs; do "$t.bootstrapped" || die "Could not bootstrap $t"; done
-    gear.status || true
-}
-function gear.ensure_runnable {
-    test -z "${OS:-}" && die "Only linux or osx. sorry..." || true
-    have wget && return
-    have curl && return
-    inst_sys wget
-}
-function gear.help {
-    echo -e "$d_"
-    test "${1:-}" = false && return || exit 0
-}
-# ------------------------------------------------------------------------- GEARS
-function binenv.bootstrapped { have binenv; } # -> PATH seems set.
-function binenv.status { binenv versions -f; }
-function binenv.bootstrap {
-    local fn
-    fn="$(tmpfn binenv)"
-    shw download "$BINENV_URL" "$fn" chmod_
-    shw "$fn" update && shw "$fn" install binenv
-    bootstrap_add_shell_hook "binenv" 'echo "$PATH" | grep -q binenv || PATH="$HOME/.binenv:$PATH"'
-}
-function binenv.activate { add_path "$H/.binenv" && have binenv; }
+    micromamba:list() { micromamba list; }
+    micromamba:query() { rg "$1" | grep name | cut -d : -f 3 | uniq; }
+fi
 
-function asdf.get_ { export ASDF_REPO && shw git clone "$ASDF_REPO" "$H/.asdf" --branch v0.12.0; }
-function asdf.bootstrapped { have asdf; }
-function asdf.status { asdf plugin list; }
-function asdf.bootstrap {
-    test -e "$H/.asdf" || with_git_curl asdf.get_
-    bootstrap_add_shell_hook "asdf" 'source "$HOME/.asdf/asdf.sh"'
-}
-function with_git_curl {
-    # $1 a function
-    have git && have curl && {
-        "$1" || die "could not run installer"
-        return 0
-    }
-    nfo "installer requires git, curl -> installing via micromamba (up to 1 min...)"
-    source_shell_hooks
-    micromamba activate base
-    shw silent micromamba install -y git curl 1>/dev/null
-    "$1" || die "could not run installer"
-    shw type git
-}
-function asdf.activate { silent . "$H/.asdf/asdf.sh"; }
+if true; then
+    NIX_URL="https://nixos.org/nix/install"
+    NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
+    NIX_FN='/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    NIX_CH_URL='https://nixos.org/channels/nixpkgs-unstable'
+    export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
 
-function micromamba.bootstrapped {
-    have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
-}
-function micromamba.status { micromamba info | grep 'base environment'; }
-function set_condarc { grep -q "^$2:" <"$1" || echo -e "$3\n" >>"$1"; }
-function micromamba.bootstrap {
-    export CONDA_FORGE_YES=yes
-    export INIT_YES=no
-    local fn
-    fn="$(tmpfn mamba_installer)"
-    download "https://micro.mamba.pm/install.sh" "$fn"
-    echo '' | "${SHELL}" <(cat "$fn") # install
-
-    fn="$H/.condarc"
-    set_condarc "$fn" "auto_activate_base" 'auto_activate_base: true'
-    set_condarc "$fn" "auto_update_conda" 'auto_update_conda: false'
-    set_condarc "$fn" 'pkgs_dirs' "pkgs_dirs:\n  - \${HOME}/micromamba/pkgs"
-
-    local a="export MAMBA_EXE='$HOME/.local/bin/micromamba'"
-    a="$a\nexport MAMBA_ROOT_PREFIX='$HOME/micromamba'"
-    a=''$a'\neval "$($MAMBA_EXE shell hook -s bash -r $MAMBA_ROOT_PREFIX)"'
-    mkdir -p "$H/micromamba"
-    shw micromamba.build_cache
-    bootstrap_add_shell_hook micromamba "$a"
-}
-function micromamba.build_cache { silent micromamba -p "$H/micromamba" install -qy xxx || true; }
-
-function nix.bootstrapped {
-    bash -ic 'nix --version'
-}
-function nix.bootstrap {
-    nix.bootstrapped && return 0
-    local url fn && url="$NIX_URL" && fn="$(tmpfn instnix)"
-    test "$(getenforce 2>/dev/null)" = "Enforcing" && {
-        hash semanage || die "Require semanage on an selinux system"
-        url="$NIX_URL_SELINUX"
-    }
-    download "$url" "$fn" chmod_
-    "$fn" --daemon --yes # asks for sudo if not root
-}
-function nix.status { nix doctor; }
-
-function brew.bootstrapped { have brew; }
-function brew.status { brew list; }
-function brewinst { /bin/bash -c "$(curl -fsSL "$BREW_URL")" && shw brew.build_cache; }
-function brew.bootstrap {
-    local d="$BREW_DIR"
-    silent touch "$d/geartest" || { # already owned?
-        test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
-        test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
-        test -e "$d" || with_git_curl brewinst
-    }
-    try rm -f "$d/geartest"
-    bootstrap_add_shell_hook "brew" 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
-}
-function brew.build_cache { silent "$BREW_DIR/bin/brew" install hello; }
-
-function gear_for_user_by_root {
-    # root installs for a specific user - creating it:
-    # Then we install already here nix and brew, so that sudo is not required later
-    local nb='' hu='' user=$1 && shift
-    test "$(whoami)" = "$user" && return 0
-    test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
-    hu="/home/$user"
-    have su || inst_sys su
-    have ps || inst_sys ps # at least brew and conda
-
-    su - "$user" -c 'echo ""' || {
-        $INTERACTIVE && confirm "ok to create user $user"
-        useradd -md "$hu" -s /bin/bash "$user" || echo "User exists already"
-        mkdir -p "$hu/.ssh"
-        test -e "$HOME/.ssh/authorized_keys" && {
-            cp "$HOME/.ssh/authorized_keys" "$hu/.ssh/" # handy on server installs
-            chown -R "$user:$user" "$hu/.ssh"
+    nix:build_cache() { nix-channel --add "$NIX_CH_URL" nixpkgs && nix-channel --update nixpkgs; }
+    nix:bootstrapped() { shw silent nix --version; }
+    nix:bootstrap() {
+        nix:bootstrapped && return 0
+        shw silent gear_ensure mm:xz
+        local url fn && url="$NIX_URL" && fn="$(tmpfn nix_installer)"
+        test "$(getenforce 2>/dev/null)" = "Enforcing" && {
+            hash semanage || die "Require semanage on an selinux system"
+            url="$NIX_URL_SELINUX"
         }
-        su - "$user" -c "mkdir -p $hu/.local/bin"
-        chown -R "$user:$user" "$hu/.local"
+        download "$url" "$fn" chmod_
+        $HAVE_ROOT && shw silent "$fn" --daemon --yes --no-channel-add || true
+        $HAVE_ROOT || shw "$fn" --daemon --yes --no-channel-add || true # asks for sudo if not root
+        test -e "$NIX_FN"
     }
-
-    test "$1" = bootstrap && {
-        have wget || have curl || inst_sys wget
-        $with_nix && {
-            nb="-n $nb"
-            have xz || inst_sys xz
-            nix.bootstrap
+    nix:status() { nix doctor; }
+    nix:have() { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
+    nix:install() {
+        # install_multi? See https://stackoverflow.com/a/59460487 -> works - but no time gain
+        # tips:
+        # nix-env -iA nixpkgs.python3Packages.zodb => installs lib
+        # OR from https://lazamar.co.uk/nix-versions/?channel=nixos-unstable&package=nodejs:
+        # nix-env -iA nodejs_20 -b -f https://github.com/NixOS/nixpkgs/archive/976fa3369d722e76f37c77493d99829540d43845.tar.gz
+        local is_tar=false ver="${2:-}"
+        echo "$ver" | grep -q '.tar' && is_tar=true
+        test -z "$ver" && {
+            shw nix-env --prebuilt-only -iA "nixpkgs.$1"
+            return $?
         }
-        $with_brew && {
-            nb="-b $nb"
-            test -e "/home/linuxbrew/.linuxbrew" || {
-                touch /.dockerenv # then brew will not complain about root
-                download "$BREW_URL" /tmp/bi chmod_
-                have git || inst_sys git
-                have curl || inst_sys curl
-                NONINTERACTIVE=1 CI=1 /tmp/bi
+        $is_tar && {
+            shw nix-env --prebuilt-only -iA "$1" -f "https://github.com/NixOS/nixpkgs/archive/$2"
+            return $?
+        }
+        return 1
+    }
+    nix:shellhook() { echo ". '$NIX_FN'"; } # on plain fedora the bash files in /etc where not enough
+    nix:list() { nix-env --query; }
+    nix:query() { cd "/nix/var/nix/profiles/per-user/root/channels/nixpkgs/pkgs" && rg "$1"; }
+fi
+
+if true; then
+    BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+    BREW_DIR="/home/linuxbrew/.linuxbrew" # only here it's fast (bins work). this is not conda...
+    brew:build_cache() { silent "$BREW_DIR/bin/brew" install hello; }
+    brew:bootstrapped() { have brew; }
+    brew:status() { brew list; }
+    brew:bootstrap() {
+        local d="$BREW_DIR"
+        silent touch "$d/geartest" || { # already owned?
+            test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
+            test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
+            test -e "$d" || {
+                shw silent gear_ensure mm:git,curl
+                silent touch /.dockerenv || true # then it allows as root
+                local fn && fn="$(tmpfn brew_installer)"
+                download "$BREW_URL" "$fn" chmod_
+                $HAVE_ROOT && NONINTERACTIVE=1 CI=1 shw silent "$fn"
+                $HAVE_ROOT || shw "$fn"
             }
-            chown -R "$user:$user" /home/linuxbrew/.linuxbrew
         }
+        try rm -f "$d/geartest"
     }
-    hu="$hu/.local/bin/gear"
-    cp "$0" "$hu"
-    chown -R "$user:$user" "$hu"
-    su - "$user" -c "export GEAR_DEBUG=$GEAR_DEBUG && eval $hu $* $nb"
-    exit $?
-}
+    brew:shellhook() { echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'; }
+    brew:have() { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
+
+    brew:install() {
+        local t="$1" && test -z "${2:-}" || t="$t@$2"
+        brew install "$t"
+    }
+    brew:list() { brew list --versions; }
+    brew:query() {
+        cd /home/linuxbrew/.linuxbrew
+        test -e "./homebrew-core" || git clone --depth=1 https://github.com/Homebrew/homebrew-core
+        cd homebrew-core
+        rg -A1 'desc ' | rg -A1 -i "$1"
+    }
+fi
+
+# ------------------------------------------------------------------------- CMDS
+if true; then
+    _INST_GEARMGRS='' # all installed ones
+    _CUR_GEARMGR=''   # the one(s) to use to install a package. This will never be parallel so global
+
+    GEAR_DEBUG="${GEAR_DEBUG:-false}"
+    GEAR_CFG_DIR="$H/.config/gear"
+    FN_ACT_GEARS="$H/.gears"
+    function gearmgr_alias { echo "${GM_ALIASES[$1]:-$1}"; }
+    function set_installed_gearmgrs {
+        local m a=''
+        for m in $ALL_GEARMGRS; do
+            silent "$m:bootstrapped" || continue
+            a="$a $m"
+        done
+        _INST_GEARMGRS="$(echo "$a" | xargs)"
+    }
+
+    gear_ensure() {
+        local chk_have=true && test "$1" = false && { chk_have=false && shift; }
+        while [[ $# -gt 0 ]]; do
+            shw gear_ensure_single "$1" $chk_have
+            shift
+        done
+    }
+
+    gear_install() { gear_ensure false "$@"; }
+
+    gear_ensure_single() {
+        true EnsuringPackages <<'        📓'
+            $1: packages spec, containing infos about gear manager to use, package, versions and commands
+            ${2:-false}: If true, then check if cmd is found anywhere in current $PATH already - and if so, succeed (skip that install)
+
+            Package spec examples:
+            - foo (or :foo)
+                install package foo latest ver, trying all installed gearmanagers in order given by $ALL_GEARMGRS
+            - binenv:foo  (or b:foo)
+                install package foo latest ver using binenv. If binenv not there, bootstrap it
+            - b (or binenv)
+                only install binenv if not present
+            - foo:1.2.3
+                install foo in ver 1.2.3, trying all mgrs. This sets $2 to false, since we can't know the version of any non gear managed pkg
+            - b:foo=1.2.3
+                install foo, ver 1.2.3 in binenv. 
+            - a:ripgrep=1.2.3:rg
+                install ripgrep, this version in asdf, trying rg as cmd for presence checks
+            - a:ripgrep=1.2.3:rg,nodejs=18.0.0:npm
+                using asdf, install ripgrep and nodejs in given versions, trying rg and npm commands for presence checks
+                CAUTION: Varying how gear managers treat missing packages here:
+                         Some will install the working ones, then fail - others reject everything if not all are known.
+            - a:ripgrep,mm:nodejs (or ripgrep,a:lazygit)
+                FORBIDDEN (supply more managers). Use gear_ensure for such things
+                => any manager has to be first part of the spec
+        📓
+        local chk_have="${2:-false}"
+        test -z "$1" && die "Require spec"
+        test "$chk_have" = true -o "$chk_have" = false || die "Wrong params in ensure (got $*)"
+        # quick check for common use:
+        spec="$1" && $chk_have && have_shw "$1" && return
+        local gm specs
+        IFS=: read -r gm specs <<<"$spec"
+        _CUR_GEARMGR=
+        test -z "$gm" || {
+            # is the first arg a gear manager?
+            gm="$(gearmgr_alias "$gm")"
+            for m in $ALL_GEARMGRS; do
+                test "$m" = "$gm" || continue
+                _CUR_GEARMGR="$m"
+                "$m:bootstrapped" && break
+                shw gear_bootstrap -fg "$m" # cache build in fg, otherwise subseq install would fail (asdf)
+                set_installed_gearmgrs
+                break
+            done
+            # if the first one was NO gear manager, then specs is the first arg:
+            test -z "$_CUR_GEARMGR" && {
+                specs="$1"
+                test -z "$_INST_GEARMGRS" && set_installed_gearmgrs # only first run
+            }
+        }
+        local spec='' args='' args='' cmds='' ver=''
+        test -z "$specs" && { have_shw "$gm" && return || return; }
+        #echo "$specs is specs"
+        for spec in ${specs//,/ }; do
+            IFS=':' read -r pkg cmd <<<"$spec"
+            IFS='=' read -r pkg ver <<<"${pkg//==/=}"
+            test -z "$cmd" && cmd="$pkg"
+            $chk_have && have_shw "$cmd" && continue
+            cmds="$cmds $cmd"
+            args="$args $pkg=$ver"
+        done
+
+        test -z "$args" && return
+
+        #echo "gm:$_CUR_GEARMGR args:$args cmd:$cmds"
+        if [ -n "$_CUR_GEARMGR" ]; then
+            shw gear_mgr_inst_mult "$_CUR_GEARMGR" $args
+        else
+            local b
+            for p in $args; do
+                b=false
+                for m in $_INST_GEARMGRS; do gear_mgr_inst_mult "$m" "$p" && b=true && break; done
+                $b || die "Could not install $p"
+            done
+        fi
+        for c in $cmds; do
+            have_shw "$c" || nfo "📦$args installed but cmd $c not found - assuming you forgot to mention."
+        done
+    }
+    gear_mgr_inst_mult() {
+        local m="$1"
+        shift && local f="${m}:install_multi"
+        have "$f" && {
+            # we prevent this common programming error totally:
+            have "${m}:install" && die "code error: defined  $f and also single install"
+            shw "$f" "$@"
+            return $?
+        }
+        while [[ $# -gt 0 ]]; do
+            IFS='=' read -r pkg ver <<<"$1"
+            shw "${m}:install" "$pkg" "$ver" || return 1
+            shift
+        done
+    }
+    # gear_install() {
+    #     # write a "spec" and sync it:
+    #     local tmp_spec && tmp_spec="$(tmpfn pkgs_to_install)"
+    #     rm -f "$tmp_spec"
+    #     # allow gear i @nix nodejs AND gear i \$nix nodejs
+    #     while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
+    #     shw cat "$tmp_spec"
+    #     gear_sync -f "$tmp_spec"
+    # }
+    # gear_single_gear_inst() {
+    #     # requires $_CUR_GEARMGR to be set (a list)!
+    #     test -z "$_CUR_GEARMGR" && die "\$_CUR_GEARMGR not initialized"
+    #     local v='' t='' gear="$1" ver="${2:-}"
+    #     nfo "Gear: $gear. version: $ver. Trying $_CUR_GEARMGR"
+    #     for t in $_CUR_GEARMGR; do
+    #         v="$("$t:have" "$gear")"
+    #         test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $gear $v [$t]" && return 0; }
+    #         test -z "$v" || nfo "Wrong version: $t $gear $v"
+    #         shw "$t:install" "$gear" "$ver" && return 0 || true
+    #     done
+    #     die "$gear_ No installer found"
+    # }
+
+    gear_query() {
+        local ti
+        set_installed_gearmgrs
+        have rg || silent binenv install rg
+        for m in $_INST_GEARMGRS; do title "Query $m" && "${m}:query" "${1:-}" || true; done
+    }
+    gear_list() {
+        local ti
+        set_installed_gearmgrs
+        for m in $_INST_GEARMGRS; do title "Installed by: $m" && "${m}:list" | grep "${1:-}" || true; done
+    }
+
+    # gear_sync() {
+    #     local fn t ti gear='' spec="./gears" match=''
+    #     set_installed_gearmgrs
+    #     _CUR_GEARMGR="$_INST_GEARMGRS"
+    #
+    #     while getopts f:m: opt; do
+    #         case "$opt" in
+    #             f) spec="$OPTARG" ;;
+    #             m) match="$OPTARG" ;;
+    #             ?) die "not supported: $opt" ;;
+    #         esac
+    #     done
+    #     test -e "$spec" || die "Not found spec file $spec"
+    #     # read the spec, line by line. lines starting with $ set the cur_gearmgr:
+    #     while read -r p; do
+    #         gear="$(echo "$p" | grep -v "^#" | xargs)"
+    #         test -z "$gear" && continue
+    #         t=false
+    #         test "$gear" = "\$mm" && gear="\$micromamba"
+    #         test "$gear" = "\$auto" && _CUR_GEARMGR="$_INST_GEARMGRS" && t=true
+    #         for ti in $_INST_GEARMGRS; do
+    #             test "$gear" = "\$${ti}" && {
+    #                 _CUR_GEARMGR="${gear#\$*}"
+    #                 t=true
+    #                 break
+    #             }
+    #         done
+    #         $t && continue
+    #         echo "$gear" | grep -q "$match" || { nfo "Skipping $gear" && continue; }
+    #         gear="${gear%#*}"   # cut off comments (which match)
+    #         gear="${gear//=/ }" # nodejs=17.1 is nodejs==17.1 is nodejs 17.1
+    #         title "$gear_ \x1b[2;36m (using $_CUR_GEARMGR)"
+    #         gear="$(echo "$gear" | sed -e 's/=/ /g')"
+    #         eval 'gear_single_gear_inst '$gear''
+    #     done <"$spec"
+    # }
+    #
+    gear_status() {
+        have gear || err "gear is not in your \$PATH"
+        test -e "$FN_ACT_GEARS" || err "No $FN_ACT_GEARS"
+        for m in $ALL_GEARMGRS; do
+            silent "${m}:bootstrapped" && good "$m" || err "$m"
+        done
+    }
+    gear_bootstrap() {
+        mkdir -p "$GEAR_CFG_DIR"
+        true Boostrapping <<'        📓'
+        We consider a gear manager "bootstrapped", when the shell hook was evaled.
+
+        Eval does:
+
+        - for binenv_ path added
+        - for asdf_ asdf.sh sourced
+        - for mm: micromamba avail as FUNCTION (not necessarily yet activated)
+
+        I.e. the bootstrapping process does add the shell hook to `.<bash | zsh >rc`.
+        User can change that and eval in other places but those should be evaled FROM shellrc as well.
+
+        Following we install all one after the other, activate, then build indexes (which takes time)
+        ℹ️ We do not build caches in the background, needs clean locking first, for subseq. installs.
+        📓
+        # bg disabled by implict installs via ensure_installed:
+        local bg=true && test "${1:-}" = '-fg' && { bg=false && shift; }
+        gear_prepare_self
+        local m inst=""
+        while [[ $# -gt 0 ]]; do
+            m="$(gearmgr_alias "$1")" && shift
+            "$m:bootstrapped" && nfo "Already bootstrapped: $m" && continue
+            inst="$inst $m"
+            shw gear_bootstrap_single "$m"
+        done
+        test -z "$inst" && return 0
+        source_shell_hooks
+        for m in $inst; do "$m:bootstrapped" || die "Could not bootstrap $m"; done
+
+        title "Building caches for$inst 🕐..."
+        function bc { shw "$1:build_cache" && nfo "$1 cache built"; }
+        for m in $inst; do bc "$m"; done # no more bg
+        # $bg && (bc "$m") & # up $bg || (bc "$m")   # ensure done
+    }
+    gear_prepare_self() {
+        test -e "$HOME/.local/bin/gear" || { mkdir -p "$HOME/.local/bin" && cp "$0" "$HOME/.local/bin/gear"; }
+        act="source $FN_ACT_GEARS || true"
+        touch "$H/.bashrc"
+        for b in "$H/.bashrc" "$H/.zshrc"; do
+            test -e "$b" || continue
+            grep -q "^$act" <"$b" && continue
+            local fn && fn="$(tmpfn brc)" # maybe no sed
+            echo -e "$act\n\n" >"$fn"
+            cat "$b" >>"$fn"
+            mv "$fn" "$b"
+        done
+    }
+
+    gear_bootstrap_single() {
+        shtit "$1:bootstrap"
+        bootstrap_add_shell_hook "$1"
+    }
+
+    gear_ensure_runnable() {
+        test -z "${OS:-}" && die "Only linux or osx. sorry..."
+        have wget && return
+        have curl && return
+        inst_sys wget
+    }
+
+    gear_help() {
+        echo -e "$DOC"
+        test "${1:-}" = false && return || exit 0
+    }
+    function gear_inst_for_user_by_root {
+        # root installs for a specific user - creating it:
+        # Then we install already here nix and brew, so that sudo is not required later
+        local hu user="$1" && shift
+        test "$(whoami)" = "$user" && return 0
+        test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
+        have su || inst_sys su
+        have ps || inst_sys ps # at least brew and conda
+
+        hu="/home/$user"
+        su - "$user" -c 'echo ""' || {
+            $INTERACTIVE && confirm "ok to create user $user"
+            useradd -md "$hu" -s /bin/bash "$user" || echo "User exists already"
+            mkdir -p "$hu/.ssh"
+            test -e "$HOME/.ssh/authorized_keys" && {
+                cp "$HOME/.ssh/authorized_keys" "$hu/.ssh/" # handy on server installs
+                chown -R "$user:$user" "$hu/.ssh"
+            }
+            su - "$user" -c "mkdir -p $hu/.local/bin"
+            chown -R "$user:$user" "$hu/.local"
+        }
+
+        test "$1" = bootstrap && {
+            have wget || have curl || inst_sys wget
+            $with_nix && {
+                have xz || inst_sys xz
+                nix:bootstrap
+            }
+            $with_brew && {
+                test -e "/home/linuxbrew/.linuxbrew" || brew:bootstrap
+                chown -R "$user:$user" /home/linuxbrew/.linuxbrew
+
+            }
+        }
+        hu="$hu/.local/bin/gear"
+        cp "$0" "$hu"
+        chown -R "$user:$user" "$hu"
+        su - "$user" -c "export GEAR_DEBUG=$GEAR_DEBUG && eval $hu $*"
+        exit $?
+    }
+
+fi
+# -------------------------------------------------- Gear Manager Operations
+
 # -------------------------------------------------- main
 function main {
     T0=$(now) && export T0
@@ -499,7 +676,7 @@ function main {
     silent ls /root/ && HAVE_ROOT=true || HAVE_ROOT=false
     title "$0 $*"
     local cmd user=''
-    cmd="${1:-help}"
+    cmd="${1:-gear_help}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -NB) with_nix=true && with_brew=true ;;
@@ -508,23 +685,27 @@ function main {
             -u | --user) user="$2" && shift ;;
             -y | --yes) export INTERACTIVE=false ;;
             -x | --debug) set -xv && export GEAR_DEBUG=true ;;
-            -h | --help) cmd=help && break ;;
-            up | bootstrap) cmd=bootstrap && break ;;
-            i | install) cmd=install && break ;;
-            l | list) cmd=list && break ;;
-            q | query) cmd=query && break ;;
-            s | status) cmd=status && break ;;
-            S | sync) cmd=sync && break ;;
+            -h | --help) cmd=gear_help && break ;;
+            e | ensure) cmd=gear_ensure && break ;;
+            up | bootstrap) cmd=gear_bootstrap && break ;;
+            i | install) cmd=gear_install && break ;;
+            l | list) cmd=gear_list && break ;;
+            q | query) cmd=gear_query && break ;;
+            s | status) cmd=gear_status && break ;;
+            R | run-gear-cmd) cmd=$2 && shift && break ;;
+            S | sync) cmd=gear_sync && break ;;
             2readme) "$0" -h 2>/dev/null >README.md && exit ;;
             *) echo "$1 not supported" && exit 1 ;;
         esac
         shift
     done
-    test "$cmd" = "help" && gear.help "$@" # exits
-    shift
-    test -z "$user" || gear_for_user_by_root "$user" "$cmd" "$@"
-    gear.ensure_runnable && source_shell_hooks
-    "gear.$cmd" "$@"
+    true && {
+        test "$cmd" = "gear_help" && "$cmd" "$@" # exits
+        shift
+        test -z "$user" || gear_inst_for_user_by_root "$user" "$cmd" "$@"
+        gear_ensure_runnable && source_shell_hooks
+        "$cmd" "$@"
+    }
 }
 
 main "$@"

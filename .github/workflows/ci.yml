@@ -17,9 +17,14 @@ jobs:
         uses: actions/checkout@v3
       - name: base_inst
         run: |
-          ./tests/osx.sh
+          ./gear -h
+          ./gear up b a mm
+          source "${HOME}/.gears
+          ./gear e gdu
+          gdu -v
+
+
             
-           
   #
   # test:
   #   name: baseinst
