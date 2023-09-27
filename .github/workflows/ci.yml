@@ -27,9 +27,20 @@ jobs:
       - name: Get source
         uses: actions/checkout@v3
       - name: base_inst
-        run: tests/test-basic.sh fatlinux
+        run: tests/test-basic.sh
 
-  
+  fs_matrix: 
+    strategy:
+      matrix:
+        fs: [fedora:38, ubuntu:22.04, debian:latest]
+      steps:
+        - name: Get source
+          uses: actions/checkout@v3
+        - name: base_inst
+          run: tests/fs.sh "${{ matrix.fs }}" tests/test-basic.sh
+
+     
+        
 
 
 

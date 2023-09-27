@@ -26,12 +26,12 @@ function main:osx {
 
 }
 
-function main:fatlinux {
+function main:linux {
     tests
 }
 
 main() {
-    local testset="$1"
+    local testset="${1:-linux}"
     "main:$testset"
 }
 
