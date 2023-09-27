@@ -92,9 +92,12 @@ with_nix=false
 with_brew=false
 FNLOG=
 # ------------------------------------------------------------------------- UTILS
-function now { date +%s%N | cut -b1-13; } && T0=$(now) && export T0 # millis
-function dt { echo -n $(($(now) - T0)); }
-function out { printf "\x1b[2;36m%5s\x1b[0m %b\n" "$(dt)" "$*" >&2; }
+_SECS='x'
+function out {
+    local s="$SECONDS"
+    test "$s" = "$_SECS" && s="" || _SECS="$s"
+    printf "\x1b[2;36m%4s\x1b[0m %b\n" "$s" "$*" >&2
+}
 function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
 function nfo { out "(ℹ️) $*"; }
 function good { out "🟩 $*"; }
