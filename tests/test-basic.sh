@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
-echo "In $*"
-D_HOME="/home/"
-test $(whoami) = 'root' && D_HOME='/root/'
+
+case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
+
+function test_linux_or_osx_base {
 set -eu
-interactive=false
-pdb() {
-    # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
-    local parent_lineno="$1"
-    local code="$2"
-    test "$code" = '0' && exit 0
-    local commands="$3"
-    echo "error exit status $code, at file $0 on or near line $parent_lineno: $commands"
-    $interactive && /bin/bash
-    exit "$code"
-}
-
-trap 'pdb "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
-
-function tests {
-    ./gear -h
+    D_HOME="/home/"
+    test "$OS" = darwin && D_HOME='/Users/'
+    test $(whoami) = 'root' && D_HOME='/root/'
+    ls /asdf
+    ./gear asdfasd
     ./gear up b a mm
     source "$HOME/.gears"
     ./gear e gdu
@@ -34,23 +24,12 @@ function tests {
     npm --version
     type npm | grep "$D_HOME"
 }
-function main:osx {
-    D_HOME='/Users/'
-    tests
-
-}
-
-function main:linux {
-    tests
-}
 
 main() {
-    test "${1:-}" = "-i" && {
-        interactive=true
-        shift
-    }
-    local testset="${1:-linux}"
-    "main:$testset"
+    test "${1:-}" = "-pdb" && { export GEAR_NO_EXIT_AT_ERR=true && shift; }
+    "${1:-test_linux_or_osx_base}" && return 0
+    ${GEAR_NO_EXIT_AT_ERR:-false} && /bin/bash
+    return 1
 }
 
 main "$@"

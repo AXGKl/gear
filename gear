@@ -92,6 +92,18 @@ case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
 with_nix=false
 with_brew=false
 FNLOG=
+
+err_handler() {
+    # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
+    local parent_lineno="$1" code="$2" commands="$3"
+    test "$code" = '0' && exit 0
+    err "error exit status $code, at file $0 on or near line $parent_lineno: $commands $(caller)"
+    "${GEAR_NO_EXIT_AT_ERR:-false}" && /bin/bash
+    false
+}
+
+trap 'err_handler "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
+
 # ------------------------------------------------------------------------- UTILS
 function out {
     printf "\x1b[2;36m%4s\x1b[0m %b\n" "$SECONDS" "$*" >&2
@@ -725,6 +737,7 @@ function main {
             -y | --yes) export INTERACTIVE=false ;;
             -x | --debug) set -xv && export GEAR_DEBUG=true ;;
             -h | --help) cmd=gear_help && break ;;
+            -pdb) GEAR_NO_EXIT_AT_ERR=true ;;
             e | ensure) cmd=gear_ensure && break ;;
             up | bootstrap) cmd=gear_bootstrap && break ;;
             i | install) cmd=gear_install && break ;;
@@ -734,7 +747,7 @@ function main {
             R | run-gear-cmd) cmd=$2 && shift && break ;;
             S | sync) cmd=gear_sync && break ;;
             2readme) "$0" -h 2>/dev/null >README.md && exit ;;
-            *) echo "$1 not supported" && exit 1 ;;
+            *) die "$1 not supported";;
         esac
         shift
     done
