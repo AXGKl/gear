@@ -22,17 +22,17 @@ jobs:
           source "${HOME}/.gears"
           ./gear e gdu
           gdu -v
-          ./gear e redis-server,lazygit,htop b:rg a:nodejs:node
-          type redis-server
+          ./gear i redis-server,lazygit b:rg a:nodejs:node
+
+          type redis-server | grep micromamba/bin/redis-server
           redis-server --version
-          type lazygit
+          type lazygit | grep '/home/'
           lazygit --version
-          type htop
-          htop --version
-          type rg
-          rg --version
+          type rg | grep '/home/'
+          rg --version 
           type npm
           npm --version
+          type npm | grep '/home/'
 
   test_linux:
     name: baseinst_linux
@@ -45,18 +45,17 @@ jobs:
           ./gear -h
           ./gear up b a mm
           source "${HOME}/.gears"
-          ./gear e redis-server,lazygit,htop b:rg a:nodejs:node
-          gdu -v
-          type redis-server
+          ./gear i redis-server,lazygit b:rg a:nodejs:node
+
+          type redis-server | grep micromamba/bin/redis-server
           redis-server --version
-          type lazygit
+          type lazygit | grep '/home/'
           lazygit --version
-          type htop
-          htop --version
-          type rg
-          rg --version
+          type rg | grep '/home/'
+          rg --version 
           type npm
           npm --version
+          type npm | grep '/home/'
 
 
   test_linux_full:
