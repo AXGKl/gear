@@ -71,13 +71,14 @@ Specfile default: "./gears"
 
 set -eu
 
-ALL_GEARMGRS="binenv asdf nix micromamba brew" # brew nix"
+ALL_GEARMGRS="binenv asdf nix micromamba brew sys" # brew nix"
 GM_ALIASES='
-b:binenv
 a:asdf
+b:binenv
+brew:brew
 mm:micromamba
 n:nix
-brew:brew
+s:sys
 ' # declare -A not supported on older bash (e.g. osx)
 
 unset IFS
@@ -92,11 +93,8 @@ with_nix=false
 with_brew=false
 FNLOG=
 # ------------------------------------------------------------------------- UTILS
-_SECS='x'
 function out {
-    local s="$SECONDS"
-    test "$s" = "$_SECS" && s="" || _SECS="$s"
-    printf "\x1b[2;36m%4s\x1b[0m %b\n" "$s" "$*" >&2
+    printf "\x1b[2;36m%4s\x1b[0m %b\n" "$SECONDS" "$*" >&2
 }
 function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
 function nfo { out "(ℹ️) $*"; }
@@ -125,17 +123,6 @@ function download {
     "$3" "$2"
 }
 
-function inst_sys { # git wget or curl
-    test "$(whoami)" = "root" || die "Require to be root for this. Sry..."
-    local pkg="$1"
-    test "$pkg" = "su" && pkg=util-linux
-    test "$pkg" = "ps" && pkg=procps
-    have apt && test "$pkg" = "xz" && pkg="xz-utils"
-    nfo "Require cmd $1 -> installing package $pkg systemwide"
-    have yum && silent yum install -qy "$pkg"
-    have apt && { silent apt install -qy "$pkg" || silent apt -q update && silent apt install -qy "$pkg"; }
-    have "$1" || die "could not install package for $1"
-}
 function source_shell_hooks { test -e "$FN_ACT_GEARS" && . "$FN_ACT_GEARS" || true; }
 function set_sh_sep {
     local sep && sep="$1"
@@ -160,9 +147,46 @@ function bootstrap_add_shell_hook {
     mv "$fnt" "$fn"
 }
 
+with_root() {
+    local r=false && { test "$1" = run && r=true && shift; }
+    $HAVE_ROOT || {
+        have sudo || die "Require sudo"
+        nfo "Req sudo to run $1 - enter your password if asked"
+        sudo -v || die "Sorry"
+    }
+    $r && sudo "$@" # e.g. for apt
+    $r || "$@"      # comamnd does sudo internally (like nix or brew bootstrap)
+}
 # --------------------------------------- ---------------------------------- GEARS
 idxline() { local a="$1✦$2✦$3" && echo "${a//$'\n'/ - }"; } # rm newlines, replace with ' - '
 IDXSEP="📦"
+if true; then # sys:
+    sys_cmd() { have apt && echo apt || { have yum && echo yum || echo ''; }; }
+    sys:bootstrapped() { test ! -z "$(sys_cmd)"; }
+    sys:bootstrap() { sys:bootstrapped || die "Only supporting apt and yum"; }
+    sys:build_cache() { shw "$(sys_cmd)" update; }
+    sys:status() {
+        test -z "$(sys_cmd)" && err "Unsupported system"
+        nfo "$(sys_cmd) based system"
+    }
+    sys:shellhook() { echo ''; }
+    sys_pkg_map() {
+        # only for tools we require potentiall...:
+        local pkg="$1"
+        test "$pkg" = "su" && pkg=util-linux
+        test "$pkg" = "ps" && pkg=procps
+        have apt && test "$pkg" = "xz" && pkg="xz-utils"
+        echo "$pkg"
+    }
+    sys:install() {
+        local pkg="$(sys_pkg_map "$1")"
+        for i in 1 2; do
+            shw with_root run "$(sys_cmd)" install -yq "$1" && return
+            shw with_root run "$(sys_cmd)" udpate -q
+        done
+        return 1
+    }
+fi
 if true; then # b:
     BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
     BINENV_CFG="$H/.config/binenv/distributions.yaml"
@@ -327,24 +351,24 @@ fi
 if true; then
     BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
     BREW_DIR="/home/linuxbrew/.linuxbrew" # only here it's fast (bins work). this is not conda...
-    brew:build_cache() { silent "$BREW_DIR/bin/brew" install hello; }
-    brew:bootstrapped() { have brew; }
+    brew:build_cache() { shw silent "$BREW_DIR/bin/brew" install hello; }
+    brew:bootstrapped() { test -w "$BREW_DIR/bin/brew"; } # exists and writeable
     brew:status() { brew list; }
+    brew_install() {
+        export HOMEBREW_NO_INSTALL_CLEANUP=true
+        # run with sudo password entered before, i.e. w/o re-enter needs:
+        silent touch /.dockerenv || true # then it allows as root
+        local fn && fn="$(tmpfn brew_installer)"
+        download "$BREW_URL" "$fn" chmod_
+        NONINTERACTIVE=1 CI=1 shw silent "$fn"
+    }
+
     brew:bootstrap() {
-        local d="$BREW_DIR"
-        silent touch "$d/geartest" || { # already owned?
-            test -e "$d" && { have sudo && sudo chown -R "$(whoami)" "$d"; }
-            test -e "$d" && { have sudo || chown -R "$(whoami)" "$d"; }
-            test -e "$d" || {
-                shw gear_ensure mm:git,curl
-                silent touch /.dockerenv || true # then it allows as root
-                local fn && fn="$(tmpfn brew_installer)"
-                download "$BREW_URL" "$fn" chmod_
-                $HAVE_ROOT && NONINTERACTIVE=1 CI=1 shw silent "$fn"
-                $HAVE_ROOT || shw "$fn"
-            }
+        test -e "$BREW_DIR/bin/brew" || {
+            shw gear_ensure mm:git,curl
+            with_root brew_install
         }
-        try rm -f "$d/geartest"
+        $HAVE_ROOT || sudo chown -R "$(whoami):$(whoami)" "$BREW_DIR"
     }
     brew:shellhook() { echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'; }
     brew:have() { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
@@ -624,10 +648,10 @@ if true; then
     }
 
     gear_ensure_runnable() {
-        test -z "${OS:-}" && die "Only linux or osx. sorry..."
+        test -z "${OS:-}" && die "Only Linux or OSX. Sorry..."
         have wget && return
         have curl && return
-        inst_sys wget
+        gear_ensure "sys:wget"
     }
 
     gear_help() {
@@ -640,8 +664,7 @@ if true; then
         local hu user="$1" && shift
         test "$(whoami)" = "$user" && return 0
         test "$(whoami)" = "root" || die "Require root to run usermode for user $user"
-        have su || inst_sys su
-        have ps || inst_sys ps # at least brew and conda
+        gear_ensure sys:su,ps
 
         hu="/home/$user"
         su - "$user" -c 'echo ""' || {
@@ -657,9 +680,9 @@ if true; then
         }
 
         test "$1" = bootstrap && {
-            have wget || have curl || inst_sys wget
+            have wget || have curl || gear_ensure sys:wget
             $with_nix && {
-                have xz || inst_sys xz
+                gear_ensure sys:xz
                 nix:bootstrap
             }
             $with_brew && {
@@ -676,14 +699,13 @@ if true; then
     }
 
 fi
-# -------------------------------------------------- Gear Manager Operations
 
 # -------------------------------------------------- main
 function main {
     FNLOG="$(tmpfn gearlog)" && export FNLOG && echo '' >"$FNLOG"
 
     [ -t 0 ] && INTERACTIVE=true || INTERACTIVE=false
-    silent ls /root/ && HAVE_ROOT=true || HAVE_ROOT=false
+    silent test -w / && HAVE_ROOT=true || HAVE_ROOT=false
     title "$0 $*"
     local cmd user=''
     cmd="${1:-gear_help}"

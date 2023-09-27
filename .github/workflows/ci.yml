@@ -45,8 +45,8 @@ jobs:
           ./gear -h
           ./gear up b a mm
           source "${HOME}/.gears"
-          gdu -v
           ./gear e redis-server,lazygit,htop b:rg a:nodejs:node
+          gdu -v
           type redis-server
           redis-server --version
           type lazygit
@@ -67,9 +67,10 @@ jobs:
         uses: actions/checkout@v3
       - name: full_inst
         run: |
-          ./gear e nix:firefox brew:gdu
+          ./gear i nix:firefox brew:gdu
           source "${HOME}/.gears"
           gdu-go -v
+          type firefox
           firefox --version
           
 
