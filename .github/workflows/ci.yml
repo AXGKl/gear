@@ -35,7 +35,7 @@ jobs:
           npm --version
 
   test_linux:
-    name: full_inst
+    name: baseinst_linux
     runs-on: ubuntu-22.04
     steps:
       - name: Get source
@@ -57,6 +57,22 @@ jobs:
           rg --version
           type npm
           npm --version
+
+
+  test_linux_full:
+    name: full_inst_linux
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Get source
+        uses: actions/checkout@v3
+      - name: full_inst
+        run: |
+          ./gear e nix:firefox brew:gdu
+          source "${HOME}/.gears"
+          gdu-go -v
+          firefox --version
+          
+
 
 
 
