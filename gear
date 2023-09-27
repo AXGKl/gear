@@ -167,6 +167,8 @@ if true; then # b:
     BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
     BINENV_CFG="$H/.config/binenv/distributions.yaml"
     binenv:build_idx() {
+        ls -lta "$H/.config"
+        ls -lta "$H/.config/binenv"
         test -e "$BINENV_CFG" || die "Not present: $BINENV_CFG - reinstall binenv"
         shw gear_ensure b:yq mm:python
         s='if 1:
