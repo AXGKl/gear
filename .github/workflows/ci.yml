@@ -33,7 +33,8 @@ jobs:
     strategy:
       matrix:
         fs: [fedora:38, ubuntu:22.04, debian:latest]
-      steps:
+    runs-on: ubuntu-22.04
+    steps:
         - name: Get source
           uses: actions/checkout@v3
         - name: base_inst
