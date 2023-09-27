@@ -45,7 +45,7 @@ function main:linux {
 }
 
 main() {
-    test "$1" = "-i" && {
+    test "${1:-}" = "-i" && {
         interactive=true
         shift
     }
