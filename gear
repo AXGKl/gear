@@ -75,6 +75,7 @@ function out {
 
 function title { out ▪️ "\x1b[1;${2:-32}m$1\x1b[0m"; }
 function nfo { out ℹ️ "$@"; }
+function hint { out 📑 "$@"; }
 function good { out 🟩 "$@"; }
 function err { out 🟥 "$@"; }
 function die { set +x && err "$*" && exit 1; }
@@ -333,7 +334,8 @@ if true; then
         shw silent nix --version
     }
     nix_start_daemon_bg() {
-        err "Starting nix-daemon as root now. You should *really* do that using your init system..."
+        err "Starting nix-daemon as root now"
+        hint "nix obviously did not support your init system, to ensure the daemon running. Please, try get nix-daemon started as root, using your init"
         $IS_ROOT && (. "$NIX_FN" && nix-daemon &) && disown
         $IS_ROOT || sudo -v
         $IS_ROOT || shw sudo bash -c '. "'$NIX_FN'" && nix-daemon & disown'
