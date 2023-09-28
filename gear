@@ -309,6 +309,8 @@ if true; then
             test -z "$ver" || args="$args==$ver"
             shift
         done
+        # --offline: on osx we get cert errors with their  servers in CI
+        # on linux the speedup should matter. Assumed nix and brew which are tried after this are explicit given:
         shw micromamba install --offline -q -y $args || shw micromamba install -q -y $args
     }
     micromamba:list() { micromamba list; }
@@ -351,11 +353,11 @@ if true; then
         local is_tar=false ver="${2:-}"
         echo "$ver" | grep -q '.tar' && is_tar=true
         test -z "$ver" && {
-            shw nix-env --prebuilt-only -iA "nixpkgs.$1"
+            shw silent nix-env --prebuilt-only -iA "nixpkgs.$1"
             return $?
         }
         $is_tar && {
-            shw nix-env --prebuilt-only -iA "$1" -f "https://github.com/NixOS/nixpkgs/archive/$2"
+            shw silent nix-env --prebuilt-only -iA "$1" -f "https://github.com/NixOS/nixpkgs/archive/$2"
             return $?
         }
         return 1
@@ -367,8 +369,8 @@ fi
 
 if true; then
     BREW_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-    BREW_DIR="/home/linuxbrew/.linuxbrew" # only here it's fast (bins work). this is not conda...
-    brew:build_cache() { shw silent "$BREW_DIR/bin/brew" install hello; }
+    BREW_DIR="/home/linuxbrew/.linuxbrew"                 # only here it's fast (bins work). this is not conda...
+    brew:build_cache() { shw try brew:install hello; }    # fails with gcc first time. no probl for bins
     brew:bootstrapped() { test -w "$BREW_DIR/bin/brew"; } # exists and writeable
     brew:status() { brew list; }
     brew_install() {
@@ -391,8 +393,11 @@ if true; then
     brew:have() { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
 
     brew:install() {
+        local d="$H/micromamba/bin"
+        test -e "$d/curl" && export HOMEBREW_CURL_PATH="$d/curl"
+        test -e "$d/git" && export HOMEBREW_GIT_PATH="$d/git"
         local t="$1" && test -z "${2:-}" || t="$t@$2"
-        brew install "$t"
+        "$BREW_DIR/bin/brew" install "$t"
     }
     brew:list() { brew list --versions; }
     brew:query() {
@@ -406,7 +411,6 @@ fi
 # ------------------------------------------------------------------------- CMDS
 if true; then
     _INST_GEARMGRS='' # all installed ones
-    _CUR_GEARMGR=''   # the one(s) to use to install a package. This will never be parallel so global
 
     GEAR_DEBUG="${GEAR_DEBUG:-false}"
     GEAR_CFG_DIR="$H/.config/gear"
@@ -463,7 +467,7 @@ if true; then
                 FORBIDDEN (supply more managers). Use gear_ensure for such things
                 => any manager has to be first part of the spec
         📓
-        local cmd take_any=false
+        local gm cmd take_any=false
         test "$2" = '--take-any' && take_any=true
         test "$2" = '--no-take-any' && take_any=false
         test -z "$1" && die "Require spec"
@@ -471,20 +475,21 @@ if true; then
         spec="$1" && $take_any && have_shw "$1" && return
         local gm specs
         IFS=: read -r gm specs <<<"$spec"
-        _CUR_GEARMGR=
+        local gm_given=false
         test -z "$gm" || {
             # is the first arg a gear manager?
             gm="$(gearmgr_alias "$gm")"
             for m in $ALL_GEARMGRS; do
                 test "$m" = "$gm" || continue
-                _CUR_GEARMGR="$m"
-                "$m:bootstrapped" && break
-                shw gear_bootstrap -fg "$m" # cache build in fg, otherwise subseq install would fail (asdf)
+                gm_given=true
+                "$gm:bootstrapped" && break
+                shw gear_bootstrap -fg "$gm" # cache build in fg, otherwise subseq install would fail (asdf)
                 set_installed_gearmgrs
                 break
             done
             # if the first one was NO gear manager, then specs is the first arg:
-            test -z "$_CUR_GEARMGR" && {
+            $gm_given || {
+                gm=''
                 specs="$1"
                 test -z "$_INST_GEARMGRS" && set_installed_gearmgrs # only first run
             }
@@ -503,9 +508,9 @@ if true; then
 
         test -z "$args" && return
 
-        #echo "gm:$_CUR_GEARMGR args:$args cmd:$cmds"
-        if [ ! -z "$_CUR_GEARMGR" ]; then
-            shw install_packages "$_CUR_GEARMGR" $args
+        #echo "gm:$gm args:$args cmd:$cmds"
+        if [ ! -z "$gm" ]; then
+            shw install_packages "$gm" $args
         else
             local b
             for p in $args; do
@@ -671,6 +676,7 @@ if true; then
         test -z "${OS:-}" && die "Only Linux or OSX. Sorry..."
         have wget && return
         have curl && return
+        nfo "Have neither wget nor curl - one of these I do require. So:"
         gear_ensure "wget"
     }
 

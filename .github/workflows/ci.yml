@@ -41,6 +41,9 @@ jobs:
           uses: actions/checkout@v3
         - name: base_inst
           run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh"
+        - name: full_inst
+          run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh" with_nix_and_brew
+
 
      
         

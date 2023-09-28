@@ -23,10 +23,13 @@ function test_linux_or_osx_base {
     type npm | grep "$D_HOME"
 }
 
-function test_nix {
-    ./gear i nix:gdu
+function with_nix_and_brew {
+    #./gear i nix:firefox brew:gdu
+    ./gear i brew:gdu
+    test -e "$HOME/.nix-profile/bin/firefox"
     source "$HOME/.gears"
-
+    gdu-go --version
+    type gdu-go | grep linuxbrew
 }
 
 main() {
