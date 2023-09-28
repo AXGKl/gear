@@ -55,15 +55,15 @@ err_handler() {
     # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
     local parent_lineno="$1" code="$2" commands="$3"
     test "$code" = '0' && exit 0
-    $log_shw && out "📔" "Command Log:" && sep && tail -n 10 "$FNLOG" && sep && echo && echo
+    $err_log_shw && out "📔" "Command Log:" && sep && tail -n 10 "$FNLOG" && sep && echo && echo
     nfo "\x1b[2;36merror exit status $code, at file $0 on or near line $parent_lineno\x1b[0m"
     "${GEAR_NO_EXIT_AT_ERR:-false}" && /bin/bash
-    false
+    return 10
 }
 
 trap 'err_handler "${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
 indnt=false
-log_shw=false
+err_log_shw=false
 # ------------------------------------------------------------------------- UTILS
 function out {
     local ico="$1" && shift
@@ -81,11 +81,12 @@ function err { out 🟥 "$@"; }
 function die { set +x && err "$*" && exit 1; }
 function shw {
     $VERBOSE && test "${1:-}" = silent && shift
-    test "$(type -t "$1")" = function && out 𝑓 "\x1b[2;36m$@" || out ⚙️ "$@"
+    test "$(type -t "$1")" = function && out 𝑓 "\x1b[2;36m$*" || out ⚙️ "$@"
+    err_log_shw=false
+    local ret=0
     indnt="$indnt  "
-    log_shw=false
-    "$@"
-    ret=$? && indnt="${indnt::-2}" && test "$ret" = "0" || log_shw=true
+    "$@" || { ret=1 && err_log_shw=true; }
+    indnt="${indnt::-2}"
     return "$ret"
 }
 function shtit { title "$*" 33 && "$@"; }
@@ -175,7 +176,7 @@ if true; then # sys:
         # only for tools we require potentiall...:
         local pkg="$1"
         test "$pkg" = "su" && pkg=util-linux
-        test "$pkg" = "ps" && pkg=procps
+        test "$pkg" = "ps" -o "$pkg" = pgrep && pkg=procps
         have apt && test "$pkg" = "xz" && pkg="xz-utils"
         echo "$pkg"
     }
@@ -336,14 +337,14 @@ if true; then
     nix_start_daemon_bg() {
         err "Starting nix-daemon as root now"
         hint "nix obviously did not support your init system, to ensure the daemon running. Please, try get nix-daemon started as root, using your init"
-        $IS_ROOT && (. "$NIX_FN" && nix-daemon &) && disown
+        $IS_ROOT && (. "$NIX_FN" && nix-daemon &) && disown || true
         $IS_ROOT || sudo -v
         $IS_ROOT || shw sudo bash -c '. "'$NIX_FN'" && nix-daemon & disown'
         shw sleep 1
     }
     nix_ensure_daemon() {
         test -e "$NIX_SCK" || shw nix_start_daemon_bg
-        have ps || gear_ensure sys:ps
+        have pgrep || gear_ensure sys:pgrep
         pgrep nix-daemon || shw nix_start_daemon_bg
     }
     nix_install() {

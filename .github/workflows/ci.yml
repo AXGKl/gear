@@ -16,7 +16,7 @@ jobs:
       - name: Get source
         uses: actions/checkout@v3
       - name: base_inst
-        run: tests/test-basic.sh
+        run: tests/test-basic.sh linux_or_osx_base
         
 
 
@@ -27,7 +27,7 @@ jobs:
       - name: Get source
         uses: actions/checkout@v3
       - name: base_inst
-        run: tests/test-basic.sh
+        run: tests/test-basic.sh linux_or_osx_base
 
   fs_matrix: 
     strategy:
@@ -40,7 +40,7 @@ jobs:
         - name: Get source
           uses: actions/checkout@v3
         - name: base_inst
-          run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh"
+          run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh" linux_or_osx_base
         - name: full_inst
           run: tests/fs.sh "${{ matrix.fs }}" "tests/test-basic.sh" with_nix_and_brew
 

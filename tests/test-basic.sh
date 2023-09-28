@@ -3,7 +3,7 @@ set -eu
 
 case "$(uname)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) OS= ;; esac
 
-function test_linux_or_osx_base {
+function linux_or_osx_base {
     D_HOME="/home/"
     test "$OS" = darwin && D_HOME='/Users/'
     test $(whoami) = 'root' && D_HOME='/root/'
@@ -33,7 +33,7 @@ function with_nix_and_brew {
 
 main() {
     test "${1:-}" = "-pdb" && { export GEAR_NO_EXIT_AT_ERR=true && shift; }
-    "${1:-test_linux_or_osx_base}"
+    "${1:-/bin/bash}"
 }
 
 main "$@"
