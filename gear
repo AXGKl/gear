@@ -71,7 +71,7 @@ Specfile default: "./gears"
 
 set -eu
 
-ALL_GEARMGRS="binenv asdf nix micromamba brew sys" # brew nix"
+ALL_GEARMGRS="binenv asdf micromamba nix brew sys" # brew nix"
 GM_ALIASES='
 a:asdf
 b:binenv
