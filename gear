@@ -185,7 +185,7 @@ if true; then # sys:
         local pkg="$(sys_pkg_map "$1")"
         for i in 1 2; do
             with_root run "$(sys_apt_or_yum)" install -yq "$1" && return
-            with_root run "$(sys_apt_or_yum)" update -q
+            with_root run "$(sys_apt_or_yum)" update -yq
         done
         return 1
     }
@@ -219,7 +219,7 @@ if true; then # b:
     }
     binenv:activate() { add_path "$H/.binenv" && have binenv; }
     binenv:have() { binenv versions -f | grep "^$1" | cut -d = -f 2 | xargs; }
-    binenv:install() { shw binenv install "$pkg" "$ver"; }
+    binenv:install() { shw silent binenv install "$pkg" "$ver"; }
 
     binenv:list() { binenv versions -f; }
     binenv:query() { binenv search "$1"; }
