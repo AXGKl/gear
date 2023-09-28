@@ -86,7 +86,7 @@ function shw {
     local ret=0
     indnt="$indnt  "
     "$@" || { ret=1 && err_log_shw=true; }
-    indnt="${indnt::-2}"
+    indnt="${indnt::-2}" || true
     return "$ret"
 }
 function shtit { title "$*" 33 && "$@"; }
