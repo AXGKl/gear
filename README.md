@@ -15,38 +15,20 @@ active, compared to solely using the system package manager.
 
 ### When you have `git` already
 
-1. Clone the repo
+1. Clone this repo
 2. Run `gear` script (see below)
 
 ### Without `git`
 
-E.g. for cloud init:</summary>
+E.g. for cloud init:
 
 ```bash
 # get it, e.g. in a cloud-init script:
-wget "https://raw.githubusercontent.com/AXGKl/gear/master/gear" 
+wget "http://axc2.axiros.com/gear"
 chmod +x gear
-./gear <e[nsure] | i[nstall]> <stuff> 
+./gear e[nsure]   <stuff>  # ensure:  only install when <stuff> is not present
+./gear i[install] <stuff>  # install: try install in any case
 ```
-</details>
-
-
-- "Ensure": Install only when command is not found 
-- "Install": Always try install using the supported gear managers
-
-
-## What Happens At First Usage
-
-1. `gear` will put itself into `$HOME/.local/bin`
-
-2. Use various package managers ("gear managers") to install the `<stuff>` you want. That
-   will cause the manager specific side-effects then, depending on which one is being utilized - but nothing specific to `gear`, except index lists (see below).
-
-3. When the stuff you list requires to bootstrap gear managers (see below), they require activation in your `.bashrc` or `.zshrc`. This is put into `$HOME/.gears`, and a line to source that at the beginning or your `.bashrc` or `.zshrc` - so, please restart your (bash or zsh) shell then (or source `$HOME/.gears`)
-  
-4. Index lists are created at gear manager install time, within `$HOME/.config/gear/`, to allow normalized searching for stuff, over various tool managers
- 
-
 
 ## Example
 
@@ -77,6 +59,26 @@ On Linux, requiring (sudo) root once at install time in addition:
 
 
 See for more examples in the [tests](./tests) directory.
+
+---
+
+## Details
+
+### What Happens At First Usage
+
+1. `gear` will put itself into `$HOME/.local/bin`
+
+2. It can/will use various package managers ("gear managers") to install the `<stuff>` you
+   want.   That will cause the manager specific side-effects then, depending on which one
+is being utilized - but nothing specific to `gear`
+
+3. When the stuff you list requires to bootstrap new gear managers (see below), they
+   require activation in your `.bashrc` or `.zshrc`. This is put into `$HOME/.gears`, and
+a line to source that at the beginning or your `.bashrc` or `.zshrc` => Please perform the
+usual shell activation then: Restart your (bash or zsh) shell or source `$HOME/.gears`
+  
+ 
+
 
 
 ## Supported Gear Managers
@@ -123,15 +125,16 @@ keep a custom one though.
 
 ### [micromamba][micromamba] (mm)
 
-🟩 Technically imho. the most advanced and powerful solution: Puts placeholders into the
-compiled artifacts, which are replaced with the install locations only at install time, so
-that they can be installed without the need to compile for the prefix. Like (home)brew on
-steroids, allowing for versions (via different prefixes - environments) and never
-requiring root.  
-🟩 Perfect support for scientific tools and or AI related stuff, like pytorch or
-tensorflow 
+🟩 Imho technically the most advanced and powerful solution
+
+> Puts placeholders into the compiled artifacts, which are replaced with the install
+locations only at install time, so that they can be installed without the need to compile
+for the prefix. Like (home)brew on steroids, allowing for versions (via different prefixes - environments) and never requiring root.  
+
+🟩 Perfect support for scientific tools and or AI related stuff, like pytorch or tensorflow 
 
 ### [nix][nix] (n)
+
 🟩 Also technically impressive - providing everything to build everything from scratch -
 in various versions on one system. The binary linking problem they solve via specific
 locations they link to using symlinks. 
@@ -154,8 +157,6 @@ Various attempts to fix this a are complex, e.g. [immutable](https://fedoraproje
 > I typically start on a new server with [binenv][binenv] for the basic terminal tools and [micromamba][micromamba]
 for more complex tools. Then on demand extend to [asdf][asdf] or, when having root, [nix][nix] (explaining to others on
 that machine, why there is now a `/nix` directory...).
-
-dnf/apt/yum I try to only use for kernel related stuff.
 
 
 

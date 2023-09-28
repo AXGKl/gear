@@ -4,67 +4,25 @@ DOC='# Meta Gear Manager
 
 Manages package managers which work in user mode.
 
+See README.md
+'
 
-## Bootstrapping (Installing the GearManagers)
-
-### As User
-
-    ./gear bootstrap [-nb]
-
-installs micromamba binenv asdf and optional (then requiring sudo at bootstrap time), nix and homebrew (-nb).
+devnotes='
+# DEV Notes
 
 ## Cloud Init (e.g. as root)
-
-This
 
     #cloud-config
 
     runcmd:
     - wget "https://raw.githubusercontent.com/AXGKl/gear/master/gear"
     - chmod +x gear
-    - ./gear -NB -u gk bootstrap
-
-* creates a user gk (incl. authorized_keys of root) if not existing
-* installs nix and linuxbrew (optional -NB) as root on the system
-* chown of /home/linuxbrew/.linuxbrew for gk
-* installs for user gk:
-   - micromamba
-   - binenv
-   - asdf
-* puts linuxbrew into the path
-
-
-
-## Usage (Installing Gears)
-
-### Spec
-
-    gear sync|S [-f specfile] [-m match]
-
-Specfile default: "./gears"
-
-
-#### Spec Format
-
-- <gearpackagename> [version] # optional comment (for matching)
-- Line starting with $: Forces specific gearmanager until next $ line (default: auto, try all in order: binenv asdf nix micromamba brew)
-- Shell syntax (# vim:ft=sh for syn hilite)
-- Lines starting with # or empty : ignored
-
-
-#### Example
-
-    gdu 5.3.1
-    neovim 0.9.1
-
-    '\$'brew
-    fzf
-
-    '\$'nix
-    firefox
-
+    ...
 
 # Nix
+
+    ~/repos/gh/AXGKl/gear master !1 ❯ nix-channel --list                                                                                                 base
+    nixgl https://github.com/guibou/nixGL/archive/main.tar.gz
 
     nix repl --expr "import <nixpkgs>{}" -> type firef<TAB>
 '
@@ -82,7 +40,7 @@ s:sys
 ' # declare -A not supported on older bash (e.g. osx)
 
 unset IFS
-export PS4='$0.$FUNCNAME.$LINENO+ '
+export PS4='$0.${FUNCNAME:-}.$LINENO+🟪 '
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 H="$HOME"
@@ -92,34 +50,49 @@ case "$(uname -m)" in arm | aarch64) ARCH='' ;; esac
 with_nix=false
 with_brew=false
 FNLOG=
-
+sep() { printf '%*s\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' -; }
 err_handler() {
     # this is run in ephemereal containers, want to remain inside on my laptop in case of errors:
     local parent_lineno="$1" code="$2" commands="$3"
     test "$code" = '0' && exit 0
-    err "error exit status $code, at file $0 on or near line $parent_lineno: $commands $(caller)"
+    $log_shw && out "📔" "Command Log:" && sep && tail -n 10 "$FNLOG" && sep && echo && echo
+    nfo "\x1b[2;36merror exit status $code, at file $0 on or near line $parent_lineno\x1b[0m"
     "${GEAR_NO_EXIT_AT_ERR:-false}" && /bin/bash
     false
 }
 
-trap 'err_handler "${LINENO}/${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
-
+trap 'err_handler "${BASH_LINENO}" "$?" "$BASH_COMMAND"' EXIT
+indnt=false
+log_shw=false
 # ------------------------------------------------------------------------- UTILS
 function out {
-    printf "\x1b[2;36m%4s\x1b[0m %b\n" "$SECONDS" "$*" >&2
+    local ico="$1" && shift
+    local s="$SECONDS"
+    test "$s" = "0" && s=""
+    $indnt && printf "\x1b[2;38;5;240m%3s\x1b[0m " $s || indnt=''
+    printf "%s%s %b\x1b[0m\n" "$indnt" "$ico" "$*" >&2
 }
-function title { out "\x1b[1;${2:-32}m$1\x1b[0m"; }
-function nfo { out "(ℹ️) $*"; }
-function good { out "🟩 $*"; }
-function err { out "🟥 $*"; }
+
+function title { out ▪️ "\x1b[1;${2:-32}m$1\x1b[0m"; }
+function nfo { out ℹ️ "$@"; }
+function good { out 🟩 "$@"; }
+function err { out 🟥 "$@"; }
 function die { set +x && err "$*" && exit 1; }
-function shw { out "⚙️ $*" && "$@"; }
+function shw {
+    $VERBOSE && test "${1:-}" = silent && shift
+    test "$(type -t "$1")" = function && out 𝑓 "\x1b[2;36m$@" || out ⚙️ "$@"
+    indnt="$indnt  "
+    log_shw=false
+    "$@"
+    ret=$? && indnt="${indnt::-2}" && test "$ret" = "0" || log_shw=true
+    return "$ret"
+}
 function shtit { title "$*" 33 && "$@"; }
 function confirm {
-    local conf && echo "$* [y/N]? " && read -r conf
+    local conf && echo && out '❓' "$@ [y/N]? " && read -r conf
     test "$conf" = "y" -o "$conf" = "y" && return 0 || die "Unconfirmed"
 }
-function silent { out "cmd: $*" >>"$FNLOG" 2>&1 && "$@" 2>>"$FNLOG" 1>>"$FNLOG"; }
+function silent { out 🤫 "$@" >>"$FNLOG" 2>&1 && "$@" 2>>"$FNLOG" 1>>"$FNLOG"; }
 function try { silent "$@" || true; }
 function have { silent hash "$1"; }
 function have_shw { have "$1" && { nfo "Have $1: $(type "$1" 2>/dev/null | head -n 1)" && return 0; } || return 1; }
@@ -143,6 +116,7 @@ function set_sh_sep {
 }
 
 function bootstrap_add_shell_hook {
+    local rm=false && test "${2:-}" = remove && rm=true
     local fnt act name="$1" what fn="$FN_ACT_GEARS"
     what="$(${name}:shellhook)"
     test -z "$what" && return # nix
@@ -151,30 +125,42 @@ function bootstrap_add_shell_hook {
     set_sh_sep "$name"
     act="$SH_SEP1\n$what\n$SH_SEP2"
 
-    grep -q "$SH_SEP1" <"$fn" || { echo -e "$act" >>"$fn" && return 0; } # had no hook yet
+    grep -q "$SH_SEP1" <"$fn" || {
+        $rm && return 0
+        echo -e "$act" >>"$fn" && return 0
+    } # had no hook yet
     fnt="$(tmpfn shhook)"
     grep -B 10000 "$SH_SEP1" <"$fn" | grep -v "$SH_SEP1" >"$fnt" || true
-    echo -e "$act" >>"$fnt"
+    $rm || echo -e "$act" >>"$fnt"
     grep -A 10000 "$SH_SEP2" <"$fn" | grep -v "$SH_SEP2" >>"$fnt" || true
     mv "$fnt" "$fn"
+    set +x
 }
-
+function rmf() {
+    while [[ $# -gt 0 ]]; do
+        test -e "$1" || err "Not present: $1"
+        test -e "$1" && shw /bin/rm -rf "$1"
+        shift
+    done
+}
 with_root() {
     local r=false && { test "$1" = run && r=true && shift; }
-    $HAVE_ROOT && {
+    $IS_ROOT && {
         shw silent "$@"
         return $?
     }
     have sudo || die "Require sudo"
     nfo "Req sudo to run $1 - enter your password if asked"
     sudo -v || die "Sorry"
-    $r && shw silent sudo "$@" # e.g. for apt
-    $r || shw silent "$@"      # comamnd does sudo internally (like nix or brew bootstrap)
+    if [ $r = true ]; then shw sudo "$@"; else shw "$@"; fi
+    return $?
 }
 # --------------------------------------- ---------------------------------- GEARS
+idxfn() { echo -e "$GEAR_CFG_DIR/idx.$1"; }
 idxline() { local a="$1✦$2✦$3" && echo "${a//$'\n'/ - }"; } # rm newlines, replace with ' - '
 IDXSEP="📦"
 if true; then # sys:
+    sys:remove_all() { die "$(sys_apt_or_yum) cannot be removed"; }
     sys_apt_or_yum() { have apt && echo apt || { have yum && echo yum || echo ''; }; }
     sys:bootstrapped() { test ! -z "$(sys_apt_or_yum)"; }
     sys:bootstrap() { sys:bootstrapped || die "Only supporting apt and yum"; }
@@ -204,6 +190,7 @@ fi
 if true; then # b:
     BINENV_URL="https://github.com/devops-works/binenv/releases/download/v0.19.0/binenv_${OS:-}_$ARCH"
     BINENV_CFG="$H/.config/binenv/distributions.yaml"
+    binenv:remove_all() { rmf "$H/.config/binenv" "$H/.cache/binenv" "$H/.binenv"; }
     binenv:build_idx() {
         local fn
         # https://github.com/devops-works/binenv/issues/241
@@ -215,7 +202,7 @@ if true; then # b:
         for k, v in d.items():
             d = v.get("description", "").replace("\n", " - ")
             print("'$IDXSEP'".join((k, d, v.get("url", ""))))'
-        python -c "$s" >"$GEAR_CFG_DIR/idx.binenv"
+        python -c "$s" >"$(idxfn binenv)"
     }
     binenv:build_cache() { shw silent binenv update && binenv:build_idx; }
     binenv:bootstrapped() { have binenv; } # -> PATH seems set.
@@ -236,6 +223,7 @@ if true; then # b:
 fi
 if true; then # a:
     ASDF_REPO="https://github.com/asdf-vm/asdf.git"
+    asdf:remove_all() { rmf "$H/.asdf"; }
     asdf:build_cache() {
         shw gear_ensure mm:python
         s='if 1:
@@ -246,7 +234,7 @@ if true; then # a:
             try: k, u = l.split()
             except Exception as ex:  continue
             print("'$IDXSEP'".join((k, "", u)))'
-        python -c "$s" >"$GEAR_CFG_DIR/idx.asdf"
+        python -c "$s" >"$(idxfn asdf)"
     }
 
     asdf:get_() { export ASDF_REPO && shw silent git clone "$ASDF_REPO" "$H/.asdf" --branch v0.12.0; }
@@ -274,6 +262,7 @@ if true; then # a:
 fi
 if true; then
     MM_D_BASE="$H/micromamba"
+    micromamba:remove_all() { rmf "$H/.local/bin/micromamba" "$H/micromamba" "$H/.condarc"; }
     micromamba:build_cache() { silent micromamba -p "$H/micromamba" install -qy non_existent || true; }
     micromamba:bootstrapped() {
         have micromamba && test -e "$MM_D_BASE" && type micromamba | grep -q install
@@ -321,11 +310,40 @@ if true; then
     NIX_URL="https://nixos.org/nix/install"
     NIX_URL_SELINUX="https://raw.githubusercontent.com/dnkmmr69420/nix-installer-scripts/main/installer-scripts/regular-nix-installer-selinux.sh"
     NIX_FN='/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+    #NIX_FN="$H/.nix-profile/etc/profile.d/nix.sh" single user install
     NIX_CH_URL='https://nixos.org/channels/nixpkgs-unstable'
+    NIX_SCK="/nix/var/nix/daemon-socket/socket"
     export NIXPKGS_ALLOW_UNFREE="${NIXPKGS_ALLOW_UNFREE:-1}"
 
-    nix:build_cache() { nix-channel --add "$NIX_CH_URL" nixpkgs && nix-channel --update nixpkgs; }
-    nix:bootstrapped() { shw silent nix --version; }
+    nix:remove_all() {
+        with_root run rm -rf /nix
+        # symlink exit check will fail:
+        for fn in "$H/.nix-defexpr" "$H/.nix-profile"; do rmf "$fn" && /bin/rm -f "$fn"; done
+        # that's what it tells us to do at reinstalls:
+        for fn in $(find /etc -print 2>/dev/null | grep backup-before-nix); do
+            grep -q '/nix/profiles' <"$fn" && { err "$fn unclean - you might need to clean original from nix stuff manually, before reinstall" && continue; }
+            with_root run mv "$fn" "${fn//.backup-before-nix/}"
+        done
+    }
+    nix:build_cache() {
+        nix_ensure_daemon
+        nix-channel --add "$NIX_CH_URL" nixpkgs && nix-channel --update nixpkgs
+    }
+    nix:bootstrapped() {
+        shw silent nix --version
+    }
+    nix_start_daemon_bg() {
+        err "Starting nix-daemon as root now. You should *really* do that using your init system..."
+        $IS_ROOT && (. "$NIX_FN" && nix-daemon &) && disown
+        $IS_ROOT || sudo -v
+        $IS_ROOT || shw sudo bash -c '. "'$NIX_FN'" && nix-daemon & disown'
+        shw sleep 1
+    }
+    nix_ensure_daemon() {
+        test -e "$NIX_SCK" || shw nix_start_daemon_bg
+        have ps || gear_ensure sys:ps
+        pgrep nix-daemon || shw nix_start_daemon_bg
+    }
     nix_install() {
         local url fn && url="$NIX_URL" && fn="$(tmpfn nix_installer)"
         test "$(getenforce 2>/dev/null)" = "Enforcing" && {
@@ -333,7 +351,7 @@ if true; then
             url="$NIX_URL_SELINUX"
         }
         download "$url" "$fn" chmod_
-        shw silent "$fn" --daemon --yes --no-channel-add || true
+        shw "$fn" --yes --no-channel-add --daemon || true
         test -e "$NIX_FN"
     }
     nix:bootstrap() {
@@ -345,6 +363,7 @@ if true; then
     nix:status() { nix doctor; }
     nix:have() { nix-env --query | grep "^$1" | cut -d '-' -f 2 | xargs; }
     nix:install() {
+        nix_ensure_daemon
         # install_multi? See https://stackoverflow.com/a/59460487 -> works - but no time gain
         # tips:
         # nix-env -iA nixpkgs.python3Packages.zodb => installs lib
@@ -387,7 +406,7 @@ if true; then
             shw gear_ensure mm:git,curl
             with_root brew_install
         }
-        $HAVE_ROOT || sudo chown -R "$(whoami):$(whoami)" "$BREW_DIR"
+        $IS_ROOT || sudo chown -R "$(whoami):$(whoami)" "$BREW_DIR"
     }
     brew:shellhook() { echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'; }
     brew:have() { brew list "$1" --versions | cut -d ' ' -f 2 | xargs; }
@@ -431,18 +450,20 @@ if true; then
 
     gear_install() { gear_ensure --no-take-any "$@"; }
 
+    gear_remove() { gear_ensure --remove "$@"; }
+
     gear_ensure() {
         _INST_GEARMGRS='' # all installed ones
-        _CUR_GEARMGR=''   # the one(s) to use to install a package. This will never be parallel so global
-        local opts='--take-any' && test "$1" = '--no-take-any' && { opts="$1" && shift; }
+        local arg='--take-any'
+        test "$1" = '--no-take-any' -o "$1" = "--remove" && { arg="$1" && shift; }
         while [[ $# -gt 0 ]]; do
-            shw gear_ensure_single "$1" $opts
+            shw gear_handle_single_spec_arg "$arg" "$1"
             shift
         done
     }
 
-    gear_ensure_single() {
-        true EnsuringPackages <<'        📓'
+    gear_handle_single_spec_arg() {
+        true EnsureOrRemoveManagersAndPackages <<'        📓'
             $1: packages spec, containing infos about gear manager to use, package, versions and commands
             $2: If = "--take-any", then check if cmd is found *anywhere* in current $PATH already - and if so, succeed (skip that install)
 
@@ -467,14 +488,16 @@ if true; then
                 FORBIDDEN (supply more managers). Use gear_ensure for such things
                 => any manager has to be first part of the spec
         📓
-        local gm cmd take_any=false
-        test "$2" = '--take-any' && take_any=true
-        test "$2" = '--no-take-any' && take_any=false
+        local gm cmd spec specs
+        local rm_mode=false take_any=false
+        test "$1" = --remove && { shift && rm_mode=true && take_any=false; }
+        test "$1" = --take-any && { shift && take_any=true; }
+        test "$1" = --no-take-any && { shift && take_any=false; }
         test -z "$1" && die "Require spec"
         # quick check for common use:
-        spec="$1" && $take_any && have_shw "$1" && return
-        local gm specs
+        spec="$1" && $take_any && have_shw "$1" && return || true
         IFS=: read -r gm specs <<<"$spec"
+
         local gm_given=false
         test -z "$gm" || {
             # is the first arg a gear manager?
@@ -482,6 +505,7 @@ if true; then
             for m in $ALL_GEARMGRS; do
                 test "$m" = "$gm" || continue
                 gm_given=true
+                $rm_mode && continue
                 "$gm:bootstrapped" && break
                 shw gear_bootstrap -fg "$gm" # cache build in fg, otherwise subseq install would fail (asdf)
                 set_installed_gearmgrs
@@ -489,10 +513,13 @@ if true; then
             done
             # if the first one was NO gear manager, then specs is the first arg:
             $gm_given || {
-                gm=''
-                specs="$1"
+                gm='' && specs="$1"
                 test -z "$_INST_GEARMGRS" && set_installed_gearmgrs # only first run
             }
+        }
+        $gm_given && $rm_mode && {
+            shw gear_remove_manager "$gm"
+            return $?
         }
         local spec='' args='' args='' cmds='' ver=''
         test -z "$specs" && { have_shw "$gm" && return || return; }
@@ -523,6 +550,13 @@ if true; then
             have_shw "$c" || nfo "📦$args installed but cmd $c not found - assuming you forgot to mention."
         done
     }
+    gear_remove_manager() {
+        err "Remove manager $1"
+        $INTERACTIVE && confirm "Ok to remove gear manager $1 and all it's packages"
+        shw "$1:remove_all"
+        bootstrap_add_shell_hook "$1" remove
+        local r=$? && hash -r && return $r
+    }
     install_packages() {
         local m="$1"
         shift && local f="${m}:install_multi"
@@ -538,29 +572,6 @@ if true; then
             shift
         done
     }
-    # gear_install() {
-    #     # write a "spec" and sync it:
-    #     local tmp_spec && tmp_spec="$(tmpfn pkgs_to_install)"
-    #     rm -f "$tmp_spec"
-    #     # allow gear i @nix nodejs AND gear i \$nix nodejs
-    #     while [[ $# -gt 0 ]]; do echo "$1" | sed -e 's/^@/$/g' | xargs >>"$tmp_spec" && shift; done
-    #     shw cat "$tmp_spec"
-    #     gear_sync -f "$tmp_spec"
-    # }
-    # gear_single_gear_inst() {
-    #     # requires $_CUR_GEARMGR to be set (a list)!
-    #     test -z "$_CUR_GEARMGR" && die "\$_CUR_GEARMGR not initialized"
-    #     local v='' t='' gear="$1" ver="${2:-}"
-    #     nfo "Gear: $gear. version: $ver. Trying $_CUR_GEARMGR"
-    #     for t in $_CUR_GEARMGR; do
-    #         v="$("$t:have" "$gear")"
-    #         test -z "$v" || { echo "$v" | grep -q "$ver" && good "Already present: $gear $v [$t]" && return 0; }
-    #         test -z "$v" || nfo "Wrong version: $t $gear $v"
-    #         shw "$t:install" "$gear" "$ver" && return 0 || true
-    #     done
-    #     die "$gear_ No installer found"
-    # }
-
     gear_query() {
         local ti
         set_installed_gearmgrs
@@ -573,43 +584,6 @@ if true; then
         for m in $_INST_GEARMGRS; do title "Installed by: $m" && "${m}:list" | grep "${1:-}" || true; done
     }
 
-    # gear_sync() {
-    #     local fn t ti gear='' spec="./gears" match=''
-    #     set_installed_gearmgrs
-    #     _CUR_GEARMGR="$_INST_GEARMGRS"
-    #
-    #     while getopts f:m: opt; do
-    #         case "$opt" in
-    #             f) spec="$OPTARG" ;;
-    #             m) match="$OPTARG" ;;
-    #             ?) die "not supported: $opt" ;;
-    #         esac
-    #     done
-    #     test -e "$spec" || die "Not found spec file $spec"
-    #     # read the spec, line by line. lines starting with $ set the cur_gearmgr:
-    #     while read -r p; do
-    #         gear="$(echo "$p" | grep -v "^#" | xargs)"
-    #         test -z "$gear" && continue
-    #         t=false
-    #         test "$gear" = "\$mm" && gear="\$micromamba"
-    #         test "$gear" = "\$auto" && _CUR_GEARMGR="$_INST_GEARMGRS" && t=true
-    #         for ti in $_INST_GEARMGRS; do
-    #             test "$gear" = "\$${ti}" && {
-    #                 _CUR_GEARMGR="${gear#\$*}"
-    #                 t=true
-    #                 break
-    #             }
-    #         done
-    #         $t && continue
-    #         echo "$gear" | grep -q "$match" || { nfo "Skipping $gear" && continue; }
-    #         gear="${gear%#*}"   # cut off comments (which match)
-    #         gear="${gear//=/ }" # nodejs=17.1 is nodejs==17.1 is nodejs 17.1
-    #         title "$gear_ \x1b[2;36m (using $_CUR_GEARMGR)"
-    #         gear="$(echo "$gear" | sed -e 's/=/ /g')"
-    #         eval 'gear_single_gear_inst '$gear''
-    #     done <"$spec"
-    # }
-    #
     gear_status() {
         have gear || err "gear is not in your \$PATH"
         test -e "$FN_ACT_GEARS" || err "No $FN_ACT_GEARS"
@@ -682,6 +656,7 @@ if true; then
 
     gear_help() {
         echo -e "$DOC"
+        echo -e "Gear Mgr Aliases: \n $GM_ALIASES\n"
         test "${1:-}" = false && return || exit 0
     }
     function gear_inst_for_user_by_root {
@@ -724,15 +699,26 @@ if true; then
         exit $?
     }
 
+    function gear_browse {
+        local m fn fns=''
+        gear_ensure fzf
+        for m in $ALL_GEARMGRS; do
+            fn="$GEAR_CFG_DIR/idx.$m" && test -e "$fn" || continue
+            fns="$fns $fn"
+        done
+        test -z "$fns" && die "No index files"
+        eval "cat $fns" | fzf
+    }
 fi
-
 # -------------------------------------------------- main
 function main {
     FNLOG="$(tmpfn gearlog)" && export FNLOG && echo '' >"$FNLOG"
 
     [ -t 0 ] && INTERACTIVE=true || INTERACTIVE=false
-    silent test -w / && HAVE_ROOT=true || HAVE_ROOT=false
-    title "$0 $*"
+    VERBOSE=false
+    title "$0 $*" # must be first line
+    # test -w / failed on container fs with podman user, where we can write (but not rm /nix)
+    test "$UID" = "0" && IS_ROOT=true || IS_ROOT=false
     local cmd user=''
     cmd="${1:-gear_help}"
     while [[ $# -gt 0 ]]; do
@@ -744,9 +730,12 @@ function main {
             -y | --yes) export INTERACTIVE=false ;;
             -x | --debug) set -xv && export GEAR_DEBUG=true ;;
             -h | --help) cmd=gear_help && break ;;
+            -v | --verbose) VERBOSE=true ;;
             -pdb) GEAR_NO_EXIT_AT_ERR=true ;;
+            b | browse) cmd=gear_browse && break ;;
             e | ensure) cmd=gear_ensure && break ;;
             up | bootstrap) cmd=gear_bootstrap && break ;;
+            rm | remove) cmd=gear_remove && break ;;
             i | install) cmd=gear_install && break ;;
             l | list) cmd=gear_list && break ;;
             q | query) cmd=gear_query && break ;;
@@ -754,6 +743,7 @@ function main {
             R | run-gear-cmd) cmd=$2 && shift && break ;;
             S | sync) cmd=gear_sync && break ;;
             2readme) "$0" -h 2>/dev/null >README.md && exit ;;
+            log) cat "$FNLOG" && exit 0 ;;
             *) die "$1 not supported" ;;
         esac
         shift
