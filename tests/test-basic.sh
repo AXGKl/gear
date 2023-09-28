@@ -9,10 +9,6 @@ function test_linux_or_osx_base {
     test $(whoami) = 'root' && D_HOME='/root/'
     ./gear up b a mm
     source "$HOME/.gears"
-    micromamba install -yq --offline redis-server || true
-    sleep 2
-    micromamba install -yq --offline redis-server || true
-    micromamba install -yq redis-server
     ./gear e gdu
     gdu -v
     ./gear i redis-server,lazygit b:rg a:nodejs:node

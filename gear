@@ -309,7 +309,7 @@ if true; then
             test -z "$ver" || args="$args==$ver"
             shift
         done
-        shw micromamba install --offline -q -y $args
+        shw micromamba install --offline -q -y $args || shw micromamba install -q -y $args
     }
     micromamba:list() { micromamba list; }
     micromamba:query() { rg "$1" | grep name | cut -d : -f 3 | uniq; }
