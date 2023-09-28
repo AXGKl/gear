@@ -86,6 +86,9 @@ function shw {
     local ret=0
     indnt="$indnt  "
     "$@" || { ret=1 && err_log_shw=true; }
+    echo "1${indnt}.."
+    echo "2${indnt::-1}.."
+    echo "3${indnt::-2}.."
     indnt="${indnt::-2}" || true
     return "$ret"
 }
