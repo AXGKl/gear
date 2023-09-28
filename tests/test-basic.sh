@@ -24,7 +24,6 @@ function test_linux_or_osx_base {
 }
 
 function with_nix_and_brew {
-    #./gear i nix:firefox brew:gdu
     ./gear i n:firefox brew:gdu
     test -e "$HOME/.nix-profile/bin/firefox"
     source "$HOME/.gears"
